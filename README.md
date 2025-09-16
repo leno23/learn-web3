@@ -32,3 +32,16 @@ Hardhat安全帽 测试  开发合约以及部署 Fundry、Truffle
 - 能够独立搭建一个hardhat工程
 - 能够编写基础合约业务
 动手一起写项目
+
+-----
+数据分类
+### 基本类型
+长度固定 实际数据就在Stack
+
+### 整数
+uint -> usigned没有符号 -+正负
+int
+
+###引用类型
+长度未知或者超过32bit  实际数据在Memory或者Storage上
+Stack只有一个keccak256类型的哈希
