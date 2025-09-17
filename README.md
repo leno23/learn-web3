@@ -50,7 +50,7 @@ Stack只有一个keccak256类型的哈希
 每发生一次交互（交易），都发生了什么
 区块链创建一个EVM执行合约的bytecode =>  对数据的处理运算
 
-EVM的存储结构
+> EVM的存储结构
 - Stack 栈
 1024个slot  超过报错  stack too deep
 每个slot 32个字节 ==> 256bit（二进制位）
@@ -59,3 +59,57 @@ EVM的存储结构
 evm自身内存
 - Storage
   在链上永久存储
+
+> 函数的基本语法
+```solidity
+// 基本函数结构
+function functionName(参数类型 参数名) 
+可见性修饰符 状态可变性修饰符 returns (返回类型){
+    // 函数体
+}
+```
+> 可见修饰符  
+- public 都可以
+- external  其他合约 + 外部账户
+- private  当前合约
+- internal   当前合约 + 子合约
+
+> 状态可见性修饰符
+- pure  不可读不可写
+- view  可读不可写
+- default 可读可写
+
+> payable
+- payable函数： 可接受ETH
+
+![Image](https://github.com/user-attachments/assets/6097c6f9-ae42-40de-868c-892b3416c900)
+
+![Image](https://github.com/user-attachments/assets/f529858a-736b-44b9-b168-006ea098c014)
+
+> calldata、memory和storage
+作用于函数，以及内部变量声明
+
+- 1.Storage
+    - 特点：永久存储在区块链上 stateDB
+    - Gas成本：最高
+    - 使用场景：合约状态变量，函数内部变量声明
+    - 类比：类似计算机的硬盘存储
+
+- 2.Memory
+    - 特点：临时存储，函数执行完销毁
+    - Gas成本中
+    - 使用场景：函数参数，返回值， 函数内部变量声明
+    - 类比：计算机内存
+- 3. Calldata
+    - 特点：临时存储
+    - Gas成本：最低
+    - 使用场景：外部函数的参数 函数返回(直接返回calldata参数)
+    - 只读内存
+Memory可以基于calldata得到
+calldata不能在函数中声明
+
+> solidyty为什么要设计这三个修饰符？
+
+EVM的设计决定了 stack、memory、stateDB这三个对象，而且他们的gas消耗、性能都不一样
+
+solidity是给开发者一个比较符合人机工程的语法，让开发者能够对这块儿操作做一个优化
