@@ -8,10 +8,10 @@
 2.evn底层原理去分析solidity代码的一些问题，解决面试中80% solidity+合约开发的问题
 3.拥有合约业务开发、测试和部署的能力
 
-###1.基础入门
+### 1.基础入门
 语法、基本数据结构（条件判断、循环）
 
-###2.进阶
+### 2.进阶
 语言特性（全局变量、接口、继承、日志、错误处理、ABI、EVM操作码、内敛汇编、gas优化）
 
 JS Java语言和结构基础
@@ -42,6 +42,20 @@ Hardhat安全帽 测试  开发合约以及部署 Fundry、Truffle
 uint -> usigned没有符号 -+正负
 int
 
-###引用类型
+### 引用类型
 长度未知或者超过32bit  实际数据在Memory或者Storage上
 Stack只有一个keccak256类型的哈希
+
+
+每发生一次交互（交易），都发生了什么
+区块链创建一个EVM执行合约的bytecode =>  对数据的处理运算
+
+EVM的存储结构
+- Stack 栈
+1024个slot  超过报错  stack too deep
+每个slot 32个字节 ==> 256bit（二进制位）
+
+- Memory
+evm自身内存
+- Storage
+  在链上永久存储
