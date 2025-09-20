@@ -2,3 +2,4 @@
 .states
 .git
 artifacts
+node_modules
