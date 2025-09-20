@@ -1,0 +1,30 @@
+{
+  "name": "learn-web3",
+  "version": "1.0.0",
+  "description": "250909  实现插入排序",
+  "main": "index.js",
+  "dependencies": {
+    "ethers": "^6.15.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "viem": "^2.37.6",
+    "vite": "^5.4.20",
+    "wagmi": "^2.17.1"
+  },
+  "type": "module",
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leno23/learn-web3.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/leno23/learn-web3/issues"
+  },
+  "homepage": "https://github.com/leno23/learn-web3#readme"
+}
