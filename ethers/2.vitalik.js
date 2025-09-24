@@ -1,7 +1,5 @@
 import { ethers } from 'ethers';
 
-
-
 const ALCHEMY_MAINNET_URL = 'https://rpc.ankr.com/eth';
 const ALCHEMY_SEPOLIA_URL = 'https://rpc.sepolia.org';
 
@@ -23,7 +21,7 @@ const main = async () => {
     // ENS域名是以太坊名称服务。  vitalik.eth   --> 0xxxxxxxx
     const balance = await provider.getBalance('0xf0aC9747345c23B6ba451d9103F8C2785800998D')
     // balance单位是wei，1ETH = 10^18wei   formatEther() 将wei转换为ETH
-    console.log(ethers.formatEther(balance)+' ETH')
+    console.log(ethers.formatEther(balance) + ' ETH')
 
     const network = await provider.getNetwork()
     console.log(network.toJSON())
