@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rust WebAssembly Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .gradient-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .gradient-button:hover {
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen flex items-center justify-center p-5">
+    <div class="bg-white rounded-3xl shadow-2xl p-10 max-w-2xl w-full">
+        <h1 class="text-4xl font-bold text-gray-800 mb-3 text-center">🦀 Rust + WebAssembly</h1>
+        <p class="text-center text-gray-600 mb-8 text-lg">
+            在浏览器中运行 Rust 代码 
+            <span class="inline-block bg-green-500 text-white px-3 py-1 rounded-full text-xs font-semibold ml-2">WASM</span>
+        </p>
+
+        <div class="mb-8 p-5 bg-gray-50 rounded-xl border-l-4 border-indigo-500">
+            <h2 class="text-indigo-600 font-bold text-xl mb-3">📊 斐波那契数列</h2>
+            <p class="text-gray-700 mb-3">输入一个数字，计算第 n 个斐波那契数（Rust WASM 计算）</p>
+            <input type="number" id="fibInput" placeholder="输入数字 (例如: 20)" value="10" 
+                   class="w-full px-4 py-3 text-base border-2 border-gray-300 rounded-lg mb-2.5 transition-colors focus:outline-none focus:border-indigo-500">
+            <button onclick="calculateFib()" class="gradient-button text-white px-8 py-3 rounded-lg font-semibold w-full mt-2.5 transition-all hover:-translate-y-1 active:translate-y-0">
+                计算斐波那契
+            </button>
+            <div id="fibResult" class="hidden mt-4 p-4 bg-white rounded-lg border-2 border-indigo-500 text-lg font-bold text-gray-800 text-center"></div>
+        </div>
+
+        <div class="mb-8 p-5 bg-gray-50 rounded-xl border-l-4 border-indigo-500">
+            <h2 class="text-indigo-600 font-bold text-xl mb-3">🎨 Mandelbrot 分形</h2>
+            <p class="text-gray-700 mb-3">使用 Rust 生成美丽的 Mandelbrot 集合</p>
+            <button onclick="drawMandelbrot()" class="gradient-button text-white px-8 py-3 rounded-lg font-semibold w-full mt-2.5 transition-all hover:-translate-y-1 active:translate-y-0">
+                生成分形图
+            </button>
+            <div class="mt-4 text-center">
+                <canvas id="canvas" width="400" height="300" class="border-2 border-indigo-500 rounded-lg max-w-full"></canvas>
+            </div>
+        </div>
+
+        <div class="mb-8 p-5 bg-gray-50 rounded-xl border-l-4 border-indigo-500">
+            <h2 class="text-indigo-600 font-bold text-xl mb-3">🔢 质数检测</h2>
+            <p class="text-gray-700 mb-3">检查一个数字是否为质数（使用 Rust WASM）</p>
+            <input type="number" id="primeInput" placeholder="输入数字 (例如: 97)" value="97" 
+                   class="w-full px-4 py-3 text-base border-2 border-gray-300 rounded-lg mb-2.5 transition-colors focus:outline-none focus:border-indigo-500">
+            <button onclick="checkPrime()" class="gradient-button text-white px-8 py-3 rounded-lg font-semibold w-full mt-2.5 transition-all hover:-translate-y-1 active:translate-y-0">
+                检查质数
+            </button>
+            <div id="primeResult" class="hidden mt-4 p-4 bg-white rounded-lg border-2 border-indigo-500 text-lg font-bold text-gray-800 text-center"></div>
+        </div>
+
+        <div class="mt-5 p-4 bg-blue-50 rounded-lg text-blue-800 text-sm">
+            💡 <strong>提示：</strong>这个页面的所有计算都是通过 Rust 编译成 WebAssembly 在浏览器中执行的！
+            打开浏览器控制台可以看到更多信息。
+        </div>
+    </div>
+
+    <script type="module" src="./index.js"></script>
+</body>
+</html>
+
+
