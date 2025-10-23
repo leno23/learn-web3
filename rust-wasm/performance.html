@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WASM vs JavaScript 性能对比</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'gradient-start': '#1e3c72',
+                        'gradient-mid': '#2a5298',
+                        'gradient-end': '#7e22ce',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #7e22ce 100%);
+        }
+        .gradient-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .gradient-button:hover {
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .gradient-danger {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        .gradient-summary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .gradient-winner {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important;
+        }
+        .gradient-progress {
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen p-5 text-gray-800">
+    <div class="text-center text-white mb-8">
+        <h1 class="text-5xl font-bold mb-3 drop-shadow-lg">🚀 WASM vs JavaScript 性能对比</h1>
+        <p class="text-xl opacity-90">比较 WebAssembly 和纯 JavaScript 在复杂图形计算中的性能差异</p>
+    </div>
+
+    <div class="max-w-[1600px] mx-auto">
+        <div class="bg-white rounded-2xl p-6 mb-8 shadow-2xl">
+            <div class="flex flex-wrap gap-4 items-center mb-4">
+                <label class="font-semibold text-gray-600">选择测试项目：</label>
+                <select id="testType" class="px-4 py-2 border-2 border-gray-300 rounded-lg text-sm focus:outline-none focus:border-purple-600 transition-colors">
+                    <option value="mandelbrot">Mandelbrot 分形集合</option>
+                    <option value="julia">Julia 分形集合</option>
+                    <option value="particles">粒子系统模拟 (200 粒子)</option>
+                    <option value="heat">热扩散模拟</option>
+                </select>
+
+                <label class="font-semibold text-gray-600">画布尺寸：</label>
+                <select id="canvasSize" class="px-4 py-2 border-2 border-gray-300 rounded-lg text-sm focus:outline-none focus:border-purple-600 transition-colors">
+                    <option value="400,300">400 × 300 (快速)</option>
+                    <option value="600,450" selected>600 × 450 (中等)</option>
+                    <option value="800,600">800 × 600 (慢速)</option>
+                    <option value="1000,750">1000 × 750 (非常慢)</option>
+                </select>
+
+                <label class="font-semibold text-gray-600">迭代次数：</label>
+                <input type="number" id="iterations" value="100" min="10" max="500" step="10" 
+                       class="px-4 py-2 border-2 border-gray-300 rounded-lg text-sm focus:outline-none focus:border-purple-600 transition-colors w-24">
+            </div>
+
+            <div class="flex flex-wrap gap-4">
+                <button onclick="runComparison()" class="gradient-button text-white px-8 py-3 rounded-lg font-semibold transition-all hover:-translate-y-1 active:translate-y-0">
+                    🔄 开始性能对比
+                </button>
+                <button onclick="runWasmOnly()" class="gradient-button text-white px-8 py-3 rounded-lg font-semibold transition-all hover:-translate-y-1 active:translate-y-0">
+                    ⚡ 仅运行 WASM
+                </button>
+                <button onclick="runJsOnly()" class="gradient-button text-white px-8 py-3 rounded-lg font-semibold transition-all hover:-translate-y-1 active:translate-y-0">
+                    📊 仅运行 JavaScript
+                </button>
+                <button onclick="clearCanvas()" class="gradient-danger text-white px-8 py-3 rounded-lg font-semibold transition-all hover:-translate-y-1 active:translate-y-0">
+                    🗑️ 清空画布
+                </button>
+            </div>
+
+            <div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg mt-5">
+                <h3 class="text-blue-800 font-semibold mb-2">💡 使用提示</h3>
+                <p class="text-gray-700 leading-relaxed">
+                    <strong>Mandelbrot/Julia:</strong> 计算密集型分形渲染，适合测试数学运算性能<br>
+                    <strong>粒子系统:</strong> 包含物理模拟和碰撞检测，测试循环和数组操作性能<br>
+                    <strong>热扩散:</strong> 模拟热传导，测试多维数组和迭代计算性能<br>
+                    💡 尺寸越大、迭代次数越多，计算越复杂，性能差异越明显
+                </p>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl p-6 shadow-2xl mb-8 hidden" id="summarySection">
+            <h2 class="text-2xl font-bold text-gray-800 mb-5">📊 性能汇总</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                <div class="gradient-summary p-5 rounded-xl text-white text-center" id="wasmCard">
+                    <h3 class="text-sm mb-2 opacity-90">WebAssembly 耗时</h3>
+                    <div class="text-4xl font-bold mb-1" id="wasmTime">-</div>
+                    <div class="text-sm opacity-80">毫秒</div>
+                </div>
+                <div class="gradient-summary p-5 rounded-xl text-white text-center" id="jsCard">
+                    <h3 class="text-sm mb-2 opacity-90">JavaScript 耗时</h3>
+                    <div class="text-4xl font-bold mb-1" id="jsTime">-</div>
+                    <div class="text-sm opacity-80">毫秒</div>
+                </div>
+                <div class="gradient-summary p-5 rounded-xl text-white text-center">
+                    <h3 class="text-sm mb-2 opacity-90">性能提升</h3>
+                    <div class="text-4xl font-bold mb-1" id="speedup">-</div>
+                    <div class="text-sm opacity-80">倍</div>
+                </div>
+                <div class="gradient-summary p-5 rounded-xl text-white text-center">
+                    <h3 class="text-sm mb-2 opacity-90">时间节省</h3>
+                    <div class="text-4xl font-bold mb-1" id="timeSaved">-</div>
+                    <div class="text-sm opacity-80">%</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            <div class="bg-white rounded-2xl p-6 shadow-2xl">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    ⚡ WebAssembly (Rust)
+                    <span class="px-3 py-1 bg-green-500 text-white text-xs font-semibold rounded-full">WASM</span>
+                </h2>
+                <div class="relative border-3 border-gray-200 rounded-xl overflow-hidden bg-black">
+                    <canvas id="wasmCanvas" width="600" height="450" class="block w-full h-auto"></canvas>
+                    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white text-lg font-semibold hidden" id="wasmLoading">
+                        计算中...
+                    </div>
+                </div>
+                <div class="mt-4 p-4 bg-gray-50 rounded-lg">
+                    <div class="flex justify-between mb-2 text-sm">
+                        <span class="text-gray-600 font-medium">计算时间:</span>
+                        <span class="font-bold text-gray-800" id="wasmCalcTime">-</span>
+                    </div>
+                    <div class="flex justify-between mb-2 text-sm">
+                        <span class="text-gray-600 font-medium">渲染时间:</span>
+                        <span class="font-bold text-gray-800" id="wasmRenderTime">-</span>
+                    </div>
+                    <div class="flex justify-between mb-2 text-sm">
+                        <span class="text-gray-600 font-medium">总耗时:</span>
+                        <span class="font-bold text-green-600" id="wasmTotalTime">-</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden mt-2.5">
+                        <div class="gradient-progress h-full transition-all duration-300" id="wasmProgress" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl p-6 shadow-2xl">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    📊 Pure JavaScript
+                    <span class="px-3 py-1 bg-orange-500 text-white text-xs font-semibold rounded-full">JS</span>
+                </h2>
+                <div class="relative border-3 border-gray-200 rounded-xl overflow-hidden bg-black">
+                    <canvas id="jsCanvas" width="600" height="450" class="block w-full h-auto"></canvas>
+                    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white text-lg font-semibold hidden" id="jsLoading">
+                        计算中...
+                    </div>
+                </div>
+                <div class="mt-4 p-4 bg-gray-50 rounded-lg">
+                    <div class="flex justify-between mb-2 text-sm">
+                        <span class="text-gray-600 font-medium">计算时间:</span>
+                        <span class="font-bold text-gray-800" id="jsCalcTime">-</span>
+                    </div>
+                    <div class="flex justify-between mb-2 text-sm">
+                        <span class="text-gray-600 font-medium">渲染时间:</span>
+                        <span class="font-bold text-gray-800" id="jsRenderTime">-</span>
+                    </div>
+                    <div class="flex justify-between mb-2 text-sm">
+                        <span class="text-gray-600 font-medium">总耗时:</span>
+                        <span class="font-bold text-red-600" id="jsTotalTime">-</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden mt-2.5">
+                        <div class="gradient-progress h-full transition-all duration-300" id="jsProgress" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./performance.js"></script>
+</body>
+</html>
+
