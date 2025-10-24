@@ -13,7 +13,7 @@ interface Position {
   token0: string;
   token1: string;
   index: number;
-  fee: number;
+  fee: bigint;
   liquidity: bigint;
   tickLower: number;
   tickUpper: number;
@@ -29,6 +29,8 @@ export default function Positions() {
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const positionManager = usePositionManager();
+  console.log(positions);
+  
 
   // 获取所有持仓
   const fetchPositions = async () => {
@@ -49,9 +51,17 @@ export default function Positions() {
       const allPositions = await positionManager.getAllPositions();
       console.log('✅ [Positions] All positions:', allPositions);
       
+      // 将 ethers Result 类型转换为普通对象数组
+      // 使用 toObject() 方法将 Result 转换为带命名属性的对象
+      const positionsArray = allPositions.map((pos: any) => {
+        const obj = pos.toObject();
+        console.log('📦 Position object:', obj);
+        return obj as Position;
+      });
+      
       // 过滤当前用户的持仓
-      const userPositions = allPositions.filter(
-        (pos: Position) => pos.owner.toLowerCase() === address.toLowerCase()
+      const userPositions = positionsArray.filter(
+        (pos) => pos.owner.toLowerCase() === address.toLowerCase()
       );
       
       console.log('👤 [Positions] User positions:', userPositions);
@@ -172,7 +182,7 @@ export default function Positions() {
                   <Col>
                     <Space>
                       <Title level={4} style={{ margin: 0 }}>Position #{position.id.toString()}</Title>
-                      <Tag color="blue">{(position.fee / 10000)}%</Tag>
+                      <Tag color="blue">{(position.fee / 10000n)}%</Tag>
                     </Space>
                   </Col>
                 </Row>

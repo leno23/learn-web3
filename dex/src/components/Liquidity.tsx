@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAccount } from 'wagmi';
+import { useLocation } from 'react-router-dom';
 import { parseUnits, MaxUint256, Contract } from 'ethers';
 import { usePositionManager, useEthersSigner } from '../hooks/useContract';
 import { useTokenBalance } from '../hooks/useTokenBalance';
 import { TOKEN_LIST } from '../config/contracts';
 import { CONTRACTS } from '../config/contracts';
 import { ERC20_ABI } from '../config/abis';
-import { Card, Button, InputNumber, Select, Space, Spin, message, Typography, Row, Col, Segmented, Divider } from 'antd';
-import { PlusOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { Card, Button, InputNumber, Select, Space, Spin, message, Typography, Row, Col, Segmented, Divider, Alert } from 'antd';
+import { PlusOutlined, CheckCircleOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import PoolList from './PoolList';
 
 const { Text, Title } = Typography;
 
@@ -20,12 +22,14 @@ const FEE_TIERS = [
 
 export default function Liquidity() {
   const { address, isConnected } = useAccount();
+  const location = useLocation();
   const [token0, setToken0] = useState(TOKEN_LIST[0]);
   const [token1, setToken1] = useState(TOKEN_LIST[1]);
   const [amount0, setAmount0] = useState('');
   const [amount1, setAmount1] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedFee, setSelectedFee] = useState(FEE_TIERS[1].value); // 默认 0.30%
+  const [fromPool, setFromPool] = useState(false); // 标记是否来自池子列表
 
   const { balance: balance0, refetch: refetchBalance0, loading: loadingBalance0 } = useTokenBalance(token0.address);
   const { balance: balance1, refetch: refetchBalance1, loading: loadingBalance1 } = useTokenBalance(token1.address);
@@ -34,6 +38,36 @@ export default function Liquidity() {
   
   // 检查 signer 是否准备好
   const isSignerReady = !!signer;
+
+  // ✅ 处理从 PoolList 传递过来的状态
+  useEffect(() => {
+    const state = location.state as any;
+    if (state && state.token0 && state.token1) {
+      console.log('🔗 [Liquidity] Received state from PoolList:', state);
+      
+      // 设置代币对
+      setToken0(state.token0);
+      setToken1(state.token1);
+      
+      // 设置费率
+      if (state.fee !== undefined) {
+        setSelectedFee(state.fee);
+      } else if (state.feeIndex !== undefined) {
+        const feeTier = FEE_TIERS.find(tier => tier.index === state.feeIndex);
+        if (feeTier) {
+          setSelectedFee(feeTier.value);
+        }
+      }
+      
+      // 标记来自池子列表
+      setFromPool(true);
+      
+      message.success(`Pre-filled for ${state.token0.symbol}/${state.token1.symbol} pool`);
+      
+      // 清除状态，避免刷新页面时重复应用
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
 
   // 调试信息：监控钱包和signer状态
   useEffect(() => {
@@ -165,11 +199,28 @@ export default function Liquidity() {
 
   return (
     <div className="liquidity-container">
-      <Card 
-        style={{ maxWidth: 540, margin: '0 auto', borderRadius: 16 }}
-        className="liquidity-card"
-      >
-        <Title level={2} style={{ marginBottom: 24 }}>Add Liquidity</Title>
+      <Row gutter={[24, 24]}>
+        {/* 添加流动性表单 */}
+        <Col xs={24} lg={12}>
+          <Card 
+            style={{ borderRadius: 16, height: '100%' }}
+            className="liquidity-card"
+          >
+            <Title level={2} style={{ marginBottom: 24 }}>Add Liquidity</Title>
+
+            {/* 来自池子列表的提示 */}
+            {fromPool && (
+              <Alert
+                message="Pool Pre-selected"
+                description={`Adding liquidity to ${token0.symbol}/${token1.symbol} pool`}
+                type="info"
+                icon={<InfoCircleOutlined />}
+                showIcon
+                closable
+                onClose={() => setFromPool(false)}
+                style={{ marginBottom: 24 }}
+              />
+            )}
 
         {/* 费率选择 */}
         <div style={{ marginBottom: 24 }}>
@@ -317,7 +368,14 @@ export default function Liquidity() {
             </Button>
           </Space>
         )}
-      </Card>
+          </Card>
+        </Col>
+
+        {/* 流动池列表 */}
+        <Col xs={24} lg={12}>
+          <PoolList />
+        </Col>
+      </Row>
     </div>
   );
 }
