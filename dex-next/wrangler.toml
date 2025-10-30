@@ -2,9 +2,3 @@ name = "dex-next"
 compatibility_date = "2024-10-30"
 pages_build_output_dir = ".vercel/output/static"
 
-[build]
-command = "npx @cloudflare/next-on-pages"
-
-[env.production]
-vars = { NODE_ENV = "production" }
-
