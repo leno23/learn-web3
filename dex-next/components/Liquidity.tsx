@@ -1,6 +1,8 @@
+'use client';
+
 import { useState, useEffect, useRef } from 'react';
 import { useAccount } from 'wagmi';
-import { useLocation } from 'react-router-dom';
+import { useSearchParams } from 'next/navigation';
 import { parseUnits, MaxUint256, Contract } from 'ethers';
 import { usePositionManager, useEthersSigner } from '../hooks/useContract';
 import { useTokenBalance } from '../hooks/useTokenBalance';
@@ -22,7 +24,7 @@ const FEE_TIERS = [
 
 export default function Liquidity() {
   const { address, isConnected } = useAccount();
-  const location = useLocation();
+  const searchParams = useSearchParams();
   const [token0, setToken0] = useState(TOKEN_LIST[0]);
   const [token1, setToken1] = useState(TOKEN_LIST[1]);
   const [amount0, setAmount0] = useState('');
@@ -40,35 +42,33 @@ export default function Liquidity() {
   // 检查 signer 是否准备好
   const isSignerReady = !!signer;
 
-  // ✅ 处理从 PoolList 传递过来的状态
+  // ✅ 处理从 PoolList 传递过来的参数
   useEffect(() => {
-    const state = location.state as any;
-    if (state && state.token0 && state.token1) {
-      console.log('🔗 [Liquidity] Received state from PoolList:', state);
+    const token0Addr = searchParams.get('token0');
+    const token1Addr = searchParams.get('token1');
+    const feeIndex = searchParams.get('feeIndex');
+    
+    if (token0Addr && token1Addr) {
+      const t0 = TOKEN_LIST.find(t => t.address.toLowerCase() === token0Addr.toLowerCase());
+      const t1 = TOKEN_LIST.find(t => t.address.toLowerCase() === token1Addr.toLowerCase());
       
-      // 设置代币对
-      setToken0(state.token0);
-      setToken1(state.token1);
-      
-      // 设置费率
-      if (state.fee !== undefined) {
-        setSelectedFee(state.fee);
-      } else if (state.feeIndex !== undefined) {
-        const feeTier = FEE_TIERS.find(tier => tier.index === state.feeIndex);
-        if (feeTier) {
-          setSelectedFee(feeTier.value);
+      if (t0 && t1) {
+        console.log('🔗 [Liquidity] Received params from PoolList');
+        setToken0(t0);
+        setToken1(t1);
+        
+        if (feeIndex) {
+          const feeTier = FEE_TIERS.find(tier => tier.index === parseInt(feeIndex));
+          if (feeTier) {
+            setSelectedFee(feeTier.value);
+          }
         }
+        
+        setFromPool(true);
+        message.success(`Pre-filled for ${t0.symbol}/${t1.symbol} pool`);
       }
-      
-      // 标记来自池子列表
-      setFromPool(true);
-      
-      message.success(`Pre-filled for ${state.token0.symbol}/${state.token1.symbol} pool`);
-      
-      // 清除状态，避免刷新页面时重复应用
-      window.history.replaceState({}, document.title);
     }
-  }, [location]);
+  }, [searchParams]);
 
   // 调试信息：监控钱包和signer状态
   useEffect(() => {

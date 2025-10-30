@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAccount } from 'wagmi';
 import { parseUnits, formatUnits, MaxUint256, Contract } from 'ethers';

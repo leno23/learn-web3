@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { formatUnits } from 'ethers';
@@ -182,7 +184,7 @@ export default function Positions() {
                   <Col>
                     <Space>
                       <Title level={4} style={{ margin: 0 }}>Position #{position.id.toString()}</Title>
-                      <Tag color="blue">{(Number(position.fee) / 10000)}%</Tag>
+                      <Tag color="blue">{(position.fee / 10000n)}%</Tag>
                     </Space>
                   </Col>
                 </Row>

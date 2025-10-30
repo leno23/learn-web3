@@ -1,5 +1,7 @@
+'use client';
+
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import { formatUnits } from 'ethers';
 import { usePoolManager } from '../hooks/useContract';
 import { TOKEN_LIST } from '../config/contracts';
@@ -34,7 +36,7 @@ interface PoolListProps {
 }
 
 export default function PoolList({ refreshKey }: PoolListProps) {
-  const navigate = useNavigate();
+  const router = useRouter();
   const [pools, setPools] = useState<Pool[]>([]);
   const [loading, setLoading] = useState(false);
   const poolManager = usePoolManager();
@@ -181,15 +183,12 @@ export default function PoolList({ refreshKey }: PoolListProps) {
       }
       
       // 跳转到流动性页面，并传递池子信息
-      navigate('/liquidity', {
-        state: {
-          token0: token0Info || { address: pool.token0, symbol: 'Unknown', decimals: 18 },
-          token1: token1Info || { address: pool.token1, symbol: 'Unknown', decimals: 18 },
-          fee: pool.fee,
-          feeIndex: pool.index,
-          poolAddress: pool.pool,
-        }
+      const params = new URLSearchParams({
+        token0: pool.token0,
+        token1: pool.token1,
+        feeIndex: pool.index.toString(),
       });
+      router.push(`/liquidity?${params.toString()}`);
       
       message.info(`Redirecting to add liquidity for ${getTokenSymbol(pool.token0)}/${getTokenSymbol(pool.token1)}`);
     } catch (error) {
@@ -213,15 +212,12 @@ export default function PoolList({ refreshKey }: PoolListProps) {
       }
       
       // 跳转到交易页面，并传递代币信息
-      navigate('/', {
-        state: {
-          tokenIn: token0Info || { address: pool.token0, symbol: 'Unknown', decimals: 18 },
-          tokenOut: token1Info || { address: pool.token1, symbol: 'Unknown', decimals: 18 },
-          fee: pool.fee,
-          feeIndex: pool.index,
-          poolAddress: pool.pool,
-        }
+      const params = new URLSearchParams({
+        tokenIn: pool.token0,
+        tokenOut: pool.token1,
+        feeIndex: pool.index.toString(),
       });
+      router.push(`/?${params.toString()}`);
       
       message.info(`Redirecting to swap ${getTokenSymbol(pool.token0)}/${getTokenSymbol(pool.token1)}`);
     } catch (error) {
