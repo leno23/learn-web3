@@ -52,7 +52,14 @@ git push origin main
    - 点击 **Environment variables**
    - 添加您的环境变量（如 API keys 等）
 
-6. 点击 **Save and Deploy**
+6. **重要**: 设置兼容性标志
+   - 在部署后，进入项目 **Settings** → **Functions**
+   - 在 **Compatibility Flags** 部分，添加 `nodejs_compat`
+   - 或者在部署时，在构建设置中添加环境变量：
+     - Key: `COMPATIBILITY_FLAGS`
+     - Value: `nodejs_compat`
+
+7. 点击 **Save and Deploy**
 
 ### 4. 等待部署完成
 
