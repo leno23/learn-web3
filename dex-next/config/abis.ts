@@ -39,6 +39,12 @@ export const POOL_MANAGER_ABI = [
   'function getPool(address token0, address token1, uint32 index) view returns (address)',
 ] as const;
 
+// Pair type for TypeScript
+export interface Pair {
+  token0: string;
+  token1: string;
+}
+
 // Pool ABI
 export const POOL_ABI = [
   'function token0() view returns (address)',

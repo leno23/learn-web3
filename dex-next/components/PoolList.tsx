@@ -23,12 +23,12 @@ interface Pool {
   pool: string;
   token0: string;
   token1: string;
-  index: number;
-  fee: number;
-  feeProtocol: number;
-  tickLower: number;
-  tickUpper: number;
-  tick: number;
+  index: number | bigint;
+  fee: number | bigint;
+  feeProtocol: number | bigint;
+  tickLower: number | bigint;
+  tickUpper: number | bigint;
+  tick: number | bigint;
   sqrtPriceX96: bigint;
   liquidity: bigint;
 }
@@ -212,10 +212,11 @@ export default function PoolList({ refreshKey }: PoolListProps) {
   // 安全地获取费率显示
   const getFeeDisplay = (pool: Pool): string => {
     try {
-      if (pool.index !== undefined && FEE_TIER_MAP[pool.index]) {
-        return FEE_TIER_MAP[pool.index];
+      const indexNum = Number(pool.index);
+      if (pool.index !== undefined && FEE_TIER_MAP[indexNum]) {
+        return FEE_TIER_MAP[indexNum];
       }
-      if (pool.fee !== undefined && pool.fee > 0) {
+      if (pool.fee !== undefined && Number(pool.fee) > 0) {
         return `${(Number(pool.fee) / 10000).toFixed(2)}%`;
       }
       return 'N/A';
@@ -243,7 +244,7 @@ export default function PoolList({ refreshKey }: PoolListProps) {
       const params = new URLSearchParams({
         token0: pool.token0,
         token1: pool.token1,
-        feeIndex: pool.index.toString(),
+        feeIndex: Number(pool.index).toString(),
       });
       router.push(`/liquidity?${params.toString()}`);
       
@@ -439,7 +440,7 @@ export default function PoolList({ refreshKey }: PoolListProps) {
                                 Min
                               </Tag>
                               <Text strong style={{ fontSize: 11 }}>
-                                {formatPriceUtil(getPriceRangeFromTicks(pool.tickLower ?? 0, pool.tickUpper ?? 0).minPrice)}
+                                {formatPriceUtil(getPriceRangeFromTicks(Number(pool.tickLower ?? 0), Number(pool.tickUpper ?? 0)).minPrice)}
                               </Text>
                             </Space>
                             <ArrowRightOutlined style={{ fontSize: 10, color: '#999' }} />
@@ -448,7 +449,7 @@ export default function PoolList({ refreshKey }: PoolListProps) {
                                 Max
                               </Tag>
                               <Text strong style={{ fontSize: 11 }}>
-                                {formatPriceUtil(getPriceRangeFromTicks(pool.tickLower ?? 0, pool.tickUpper ?? 0).maxPrice)}
+                                {formatPriceUtil(getPriceRangeFromTicks(Number(pool.tickLower ?? 0), Number(pool.tickUpper ?? 0)).maxPrice)}
                               </Text>
                             </Space>
                         </Row>
@@ -456,7 +457,9 @@ export default function PoolList({ refreshKey }: PoolListProps) {
                           {/* Price Position Indicator */}
                           {(() => {
                             const currentPrice = parseFloat(formatPriceDisplay(pool.sqrtPriceX96));
-                            const { minPrice, maxPrice } = getPriceRangeFromTicks(pool.tickLower ?? 0, pool.tickUpper ?? 0);
+                            const tickLower = Number(pool.tickLower ?? 0);
+                            const tickUpper = Number(pool.tickUpper ?? 0);
+                            const { minPrice, maxPrice } = getPriceRangeFromTicks(tickLower, tickUpper);
                             const position = ((currentPrice - minPrice) / (maxPrice - minPrice)) * 100;
                             const isInRange = currentPrice >= minPrice && currentPrice <= maxPrice;
                             
@@ -475,13 +478,13 @@ export default function PoolList({ refreshKey }: PoolListProps) {
                           
                         <Row justify="space-between">
                             <Text type="secondary" style={{ fontSize: 10 }}>
-                              Tick: {pool.tickLower ?? 0}
+                              Tick: {Number(pool.tickLower ?? 0)}
                             </Text>
                             <Text type="secondary" style={{ fontSize: 10 }}>
-                              Current: {pool.tick ?? 0}
+                              Current: {Number(pool.tick ?? 0)}
                             </Text>
                             <Text type="secondary" style={{ fontSize: 10 }}>
-                              Tick: {pool.tickUpper ?? 0}
+                              Tick: {Number(pool.tickUpper ?? 0)}
                           </Text>
                         </Row>
                       </Space>
