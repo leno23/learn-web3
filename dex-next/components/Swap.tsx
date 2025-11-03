@@ -9,8 +9,9 @@ import { useEthBalance } from '../hooks/useEthBalance';
 import { TOKEN_LIST } from '../config/contracts';
 import { CONTRACTS } from '../config/contracts';
 import { ERC20_ABI } from '../config/abis';
-import { Card, Button, InputNumber, Select, Space, Spin, message, Typography, Row, Col, Segmented, Tag } from 'antd';
-import { SwapOutlined, ReloadOutlined, CheckCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { Card, Button, InputNumber, Select, Space, Spin, message, Typography, Row, Col, Segmented, Tag, Alert, Modal, List, Progress, Tooltip } from 'antd';
+import { SwapOutlined, ReloadOutlined, CheckCircleOutlined, ThunderboltOutlined, InfoCircleOutlined, WarningOutlined } from '@ant-design/icons';
+import { getPriceRangeFromTicks, formatPrice as formatPriceUtil } from '../utils/priceUtils';
 
 const { Text, Title } = Typography;
 
@@ -43,6 +44,12 @@ export default function Swap() {
   const [selectedFee, setSelectedFee] = useState(FEE_TIERS[1].value); // 默认 0.30%
   const [allowance, setAllowance] = useState('0');
   const [checkingAllowance, setCheckingAllowance] = useState(false);
+  const [availablePools, setAvailablePools] = useState<any[]>([]);
+  const [selectedPoolIndex, setSelectedPoolIndex] = useState<number | null>(null);
+  const [showPoolSelector, setShowPoolSelector] = useState(false);
+  const [poolLiquidity, setPoolLiquidity] = useState<bigint>(0n);
+  const [partialExecutionWarning, setPartialExecutionWarning] = useState<string>('');
+  const [swapMode, setSwapMode] = useState<'exactInput' | 'exactOutput'>('exactInput');
   
   const { balance: balanceIn, refetch: refetchBalanceIn, loading: loadingBalanceIn } = useTokenBalance(tokenIn.address);
   const { balance: balanceOut, refetch: refetchBalanceOut, loading: loadingBalanceOut } = useTokenBalance(tokenOut.address);
@@ -139,10 +146,96 @@ export default function Swap() {
   const poolManagerRef = useRef(poolManager);
   poolManagerRef.current = poolManager;
 
+  // 获取可用的池子列表
+  const fetchAvailablePools = useCallback(async () => {
+    const manager = poolManagerRef.current;
+    if (!manager) return;
+
+    try {
+      const allPools = await manager.getAllPools();
+      
+      // 计算 zeroForOne (token 地址比较大小)
+      const zeroForOne = tokenIn.address.toLowerCase() < tokenOut.address.toLowerCase();
+      const token0 = zeroForOne ? tokenIn.address : tokenOut.address;
+      const token1 = zeroForOne ? tokenOut.address : tokenIn.address;
+      
+      // 过滤出当前交易对的池子
+      const matchingPools = allPools.filter((pool: any) => 
+        pool.token0.toLowerCase() === token0.toLowerCase() &&
+        pool.token1.toLowerCase() === token1.toLowerCase()
+      );
+      
+      setAvailablePools(matchingPools);
+      
+      // 如果有多个池子，自动选择第一个
+      if (matchingPools.length > 0) {
+        // 尝试找到匹配当前费率的池子
+        const matchingFeePool = matchingPools.find((pool: any) => 
+          FEE_TIERS[pool.index]?.value === selectedFee
+        );
+        
+        if (matchingFeePool) {
+          setSelectedPoolIndex(matchingFeePool.index);
+          setPoolLiquidity(matchingFeePool.liquidity);
+        } else {
+          setSelectedPoolIndex(matchingPools[0].index);
+          setPoolLiquidity(matchingPools[0].liquidity);
+        }
+      } else {
+        setSelectedPoolIndex(null);
+        setPoolLiquidity(0n);
+      }
+    } catch (error) {
+      console.error('Error fetching pools:', error);
+    }
+  }, [tokenIn.address, tokenOut.address, selectedFee]);
+
+  // 当代币或费率变化时，获取可用池子
+  useEffect(() => {
+    fetchAvailablePools();
+  }, [fetchAvailablePools]);
+
+  // 检查是否可能部分成交
+  const checkPartialExecution = useCallback(() => {
+    if (!amountIn || !poolLiquidity || poolLiquidity === 0n) {
+      setPartialExecutionWarning('');
+      return;
+    }
+
+    try {
+      const amountInWei = parseUnits(amountIn, 18);
+      const liquidityRatio = Number(amountInWei) / Number(poolLiquidity);
+      
+      // 如果输入金额超过池子流动性的 50%，警告可能部分成交
+      if (liquidityRatio > 0.5) {
+        setPartialExecutionWarning(
+          `⚠️ Large trade! Your input is ${(liquidityRatio * 100).toFixed(1)}% of pool liquidity. May result in partial execution or high slippage.`
+        );
+      } else if (liquidityRatio > 0.2) {
+        setPartialExecutionWarning(
+          `⚠️ Your input is ${(liquidityRatio * 100).toFixed(1)}% of pool liquidity. Consider splitting into smaller trades.`
+        );
+      } else {
+        setPartialExecutionWarning('');
+      }
+    } catch (error) {
+      setPartialExecutionWarning('');
+    }
+  }, [amountIn, poolLiquidity]);
+
+  // 当输入金额或池子流动性变化时，检查部分成交
+  useEffect(() => {
+    checkPartialExecution();
+  }, [checkPartialExecution]);
+
   // 获取报价
-  const getQuote = useCallback(async (amount: string) => {
+  const getQuote = useCallback(async (amount: string, isOutput: boolean = false) => {
     if (!amount || parseFloat(amount) <= 0) {
-      setAmountOut('');
+      if (isOutput) {
+        setAmountIn('');
+      } else {
+        setAmountOut('');
+      }
       return;
     }
 
@@ -161,8 +254,11 @@ export default function Swap() {
 
     setQuoteLoading(true);
     try {
-      const amountInWei = parseUnits(amount, 18);
-      const selectedFeeTier = FEE_TIERS.find(fee => fee.value === selectedFee);
+      const amountWei = parseUnits(amount, 18);
+      // 使用选中的池子索引，如果没有则使用费率对应的索引
+      const poolIndexToUse = selectedPoolIndex !== null 
+        ? selectedPoolIndex 
+        : FEE_TIERS.find(fee => fee.value === selectedFee)?.index ?? 1;
       
       // 计算 zeroForOne (token 地址比较大小)
       const zeroForOne = tokenIn.address.toLowerCase() < tokenOut.address.toLowerCase();
@@ -174,11 +270,11 @@ export default function Swap() {
       console.log('🔍 Checking pool...', {
         token0: token0.slice(0, 10) + '...',
         token1: token1.slice(0, 10) + '...',
-        index: selectedFeeTier?.index,
+        index: poolIndexToUse,
       });
       
       // 检查池子是否存在
-      const poolAddress = await manager.getPool(token0, token1, selectedFeeTier?.index ?? 1);
+      const poolAddress = await manager.getPool(token0, token1, poolIndexToUse);
       console.log('📍 Pool address:', poolAddress);
       
       if (!poolAddress || poolAddress === '0x0000000000000000000000000000000000000000') {
@@ -198,23 +294,39 @@ export default function Swap() {
       console.log('💰 Getting quote...', {
         tokenIn: tokenIn.symbol,
         tokenOut: tokenOut.symbol,
-        amountIn: amount,
-        fee: selectedFeeTier?.label,
+        amount: amount,
+        mode: isOutput ? 'exactOutput' : 'exactInput',
+        poolIndex: poolIndexToUse,
         zeroForOne,
       });
       
-      // 调用 quoteExactInput 获取报价 (使用 staticCall 进行只读调用)
-      const quote = await router.quoteExactInput.staticCall({
-        tokenIn: tokenIn.address,
-        tokenOut: tokenOut.address,
-        indexPath: [selectedFeeTier?.index ?? 1], // 使用选择的费率对应的索引
-        amountIn: amountInWei,
-        sqrtPriceLimitX96: sqrtPriceLimitX96,
-      });
+      if (isOutput) {
+        // exactOutput: 指定输出，获取需要的输入
+        const quote = await router.quoteExactOutput.staticCall({
+          tokenIn: tokenIn.address,
+          tokenOut: tokenOut.address,
+          indexPath: [poolIndexToUse],
+          amountOut: amountWei,
+          sqrtPriceLimitX96: sqrtPriceLimitX96,
+        });
 
-      const formattedQuote = formatUnits(quote, 18);
-      setAmountOut(formattedQuote);
-      console.log('✅ Quote received:', formattedQuote);
+        const formattedQuote = formatUnits(quote, 18);
+        setAmountIn(formattedQuote);
+        console.log('✅ Quote received (exactOutput):', formattedQuote);
+      } else {
+        // exactInput: 指定输入，获取输出
+        const quote = await router.quoteExactInput.staticCall({
+          tokenIn: tokenIn.address,
+          tokenOut: tokenOut.address,
+          indexPath: [poolIndexToUse],
+          amountIn: amountWei,
+          sqrtPriceLimitX96: sqrtPriceLimitX96,
+        });
+
+        const formattedQuote = formatUnits(quote, 18);
+        setAmountOut(formattedQuote);
+        console.log('✅ Quote received (exactInput):', formattedQuote);
+      }
     } catch (error: any) {
       console.error('❌ Error getting quote:', error);
       
@@ -234,25 +346,36 @@ export default function Swap() {
       }
       
       message.warning(errorMessage);
-      setAmountOut('');
+      if (isOutput) {
+        setAmountIn('');
+      } else {
+        setAmountOut('');
+      }
     } finally {
       setQuoteLoading(false);
     }
-  }, [tokenIn.address, tokenIn.symbol, tokenOut.address, tokenOut.symbol, selectedFee]);
+  }, [tokenIn.address, tokenIn.symbol, tokenOut.address, tokenOut.symbol, selectedFee, selectedPoolIndex]);
 
   // 处理输入金额变化 - 自动获取报价
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (amountIn) {
+      if (swapMode === 'exactInput' && amountIn) {
         console.log('🔄 Input changed, getting quote for:', amountIn);
-        getQuote(amountIn);
+        getQuote(amountIn, false);
+      } else if (swapMode === 'exactOutput' && amountOut) {
+        console.log('🔄 Output changed, getting quote for:', amountOut);
+        getQuote(amountOut, true);
       } else {
-        setAmountOut('');
+        if (swapMode === 'exactInput') {
+          setAmountOut('');
+        } else {
+          setAmountIn('');
+        }
       }
     }, 500); // 防抖 500ms
 
     return () => clearTimeout(timer);
-  }, [amountIn, getQuote]);
+  }, [amountIn, amountOut, swapMode, getQuote]);
 
   // 授权代币
   const approveToken = async () => {
@@ -310,10 +433,10 @@ export default function Swap() {
 
     try {
       setLoading(true);
-      const amountInWei = parseUnits(amountIn, 18);
-      const amountOutMin = parseUnits((parseFloat(amountOut) * 0.95).toString(), 18); // 5% slippage
       const deadline = Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes
-      const selectedFeeTier = FEE_TIERS.find(fee => fee.value === selectedFee);
+      const poolIndexToUse = selectedPoolIndex !== null 
+        ? selectedPoolIndex 
+        : FEE_TIERS.find(fee => fee.value === selectedFee)?.index ?? 1;
 
       // 计算 zeroForOne (token 地址比较大小)
       const zeroForOne = tokenIn.address.toLowerCase() < tokenOut.address.toLowerCase();
@@ -323,19 +446,41 @@ export default function Swap() {
         ? BigInt('4295128740')  // MIN_SQRT_PRICE + 1
         : BigInt('1461446703485210103287273052203988822378723970341');  // MAX_SQRT_PRICE - 1
 
-      const tx = await swapRouter.exactInput({
-        tokenIn: tokenIn.address,
-        tokenOut: tokenOut.address,
-        indexPath: [selectedFeeTier?.index ?? 1],
-        recipient: address,
-        deadline: deadline,
-        amountIn: amountInWei,
-        amountOutMinimum: amountOutMin,
-        sqrtPriceLimitX96: sqrtPriceLimitX96,
-      });
+      let tx;
+      if (swapMode === 'exactInput') {
+        // Exact Input: 指定输入金额，最小化输出
+        const amountInWei = parseUnits(amountIn, 18);
+        const amountOutMin = parseUnits((parseFloat(amountOut) * 0.95).toString(), 18); // 5% slippage
+        
+        tx = await swapRouter.exactInput({
+          tokenIn: tokenIn.address,
+          tokenOut: tokenOut.address,
+          indexPath: [poolIndexToUse],
+          recipient: address,
+          deadline: deadline,
+          amountIn: amountInWei,
+          amountOutMinimum: amountOutMin,
+          sqrtPriceLimitX96: sqrtPriceLimitX96,
+        });
+      } else {
+        // Exact Output: 指定输出金额，最大化输入
+        const amountOutWei = parseUnits(amountOut, 18);
+        const amountInMax = parseUnits((parseFloat(amountIn) * 1.05).toString(), 18); // 5% slippage
+        
+        tx = await swapRouter.exactOutput({
+          tokenIn: tokenIn.address,
+          tokenOut: tokenOut.address,
+          indexPath: [poolIndexToUse],
+          recipient: address,
+          deadline: deadline,
+          amountOut: amountOutWei,
+          amountInMaximum: amountInMax,
+          sqrtPriceLimitX96: sqrtPriceLimitX96,
+        });
+      }
 
       await tx.wait();
-      message.success('Swap successful!');
+      message.success(`Swap successful! (${swapMode})`);
       setAmountIn('');
       setAmountOut('');
       // 刷新余额
@@ -391,9 +536,54 @@ export default function Swap() {
           </Col>
         </Row>
 
+        {/* Swap Mode 选择 */}
+        <div style={{ marginBottom: 24 }}>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>Swap Mode</Text>
+          <Segmented
+            options={[
+              { 
+                label: 'Exact Input', 
+                value: 'exactInput',
+                icon: <ThunderboltOutlined />
+              },
+              { 
+                label: 'Exact Output', 
+                value: 'exactOutput',
+                icon: <SwapOutlined />
+              },
+            ]}
+            value={swapMode}
+            onChange={(val) => {
+              setSwapMode(val as 'exactInput' | 'exactOutput');
+              // 清空金额，避免混淆
+              setAmountIn('');
+              setAmountOut('');
+            }}
+            block
+            disabled={loading}
+          />
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+            {swapMode === 'exactInput' 
+              ? '💡 Specify input amount, maximize output' 
+              : '💡 Specify output amount, minimize input'}
+          </Text>
+        </div>
+
         {/* 费率选择 */}
         <div style={{ marginBottom: 24 }}>
-          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>Fee Tier</Text>
+          <Row justify="space-between" align="middle" style={{ marginBottom: 8 }}>
+            <Text type="secondary">Fee Tier</Text>
+            {availablePools.length > 1 && (
+              <Button 
+                type="link" 
+                size="small" 
+                onClick={() => setShowPoolSelector(true)}
+                icon={<InfoCircleOutlined />}
+              >
+                {availablePools.length} pools available
+              </Button>
+            )}
+          </Row>
           <Segmented
             options={FEE_TIERS.map(fee => ({
               label: fee.label,
@@ -405,6 +595,53 @@ export default function Swap() {
             disabled={loading}
           />
         </div>
+
+        {/* 池子信息 */}
+        {availablePools.length > 0 && selectedPoolIndex !== null && (
+          <Card 
+            size="small" 
+            style={{ 
+              marginBottom: 16,
+              background: 'rgba(124, 58, 237, 0.05)',
+              borderColor: '#7c3aed'
+            }}
+          >
+            <Space direction="vertical" size={4} style={{ width: '100%' }}>
+              <Row justify="space-between">
+                <Text type="secondary" style={{ fontSize: 12 }}>Pool Liquidity:</Text>
+                <Text strong>{formatBalance(formatUnits(poolLiquidity, 18))}</Text>
+              </Row>
+              {(() => {
+                const pool = availablePools.find((p: any) => p.index === selectedPoolIndex);
+                if (!pool) return null;
+                const { minPrice, maxPrice } = getPriceRangeFromTicks(pool.tickLower ?? 0, pool.tickUpper ?? 0);
+                return (
+                  <>
+                    <Row justify="space-between">
+                      <Text type="secondary" style={{ fontSize: 12 }}>Price Range:</Text>
+                      <Text code style={{ fontSize: 11 }}>
+                        {formatPriceUtil(minPrice)} - {formatPriceUtil(maxPrice)}
+                      </Text>
+                    </Row>
+                  </>
+                );
+              })()}
+            </Space>
+          </Card>
+        )}
+
+        {/* 部分成交警告 */}
+        {partialExecutionWarning && (
+          <Alert
+            message="Liquidity Warning"
+            description={partialExecutionWarning}
+            type="warning"
+            icon={<WarningOutlined />}
+            showIcon
+            style={{ marginBottom: 16 }}
+            closable
+          />
+        )}
         
         {/* From Input */}
         <Card 
@@ -431,11 +668,10 @@ export default function Swap() {
             <Col flex="auto">
               <InputNumber
                 style={{ width: '100%', fontSize: 24, fontWeight: 600 }}
-                bordered={false}
                 placeholder="0.0"
                 value={amountIn ? parseFloat(amountIn) : undefined}
                 onChange={(val) => setAmountIn(val?.toString() || '')}
-                disabled={loading}
+                disabled={loading || swapMode === 'exactOutput'}
                 controls={false}
                 min={0}
                 stringMode
@@ -485,7 +721,9 @@ export default function Swap() {
           size="small" 
           style={{ marginBottom: 16 }}
         >
-          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>To (estimated)</Text>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+            To {swapMode === 'exactInput' ? '(estimated)' : ''}
+          </Text>
           <Row gutter={12} align="middle">
             <Col flex="auto">
               <InputNumber
@@ -493,8 +731,10 @@ export default function Swap() {
                 bordered={false}
                 placeholder="0.0"
                 value={amountOut ? parseFloat(amountOut) : undefined}
-                disabled
+                onChange={(val) => setAmountOut(val?.toString() || '')}
+                disabled={loading || swapMode === 'exactInput'}
                 controls={false}
+                min={0}
                 stringMode
               />
             </Col>
@@ -571,6 +811,90 @@ export default function Swap() {
           </Space>
         )}
       </Card>
+
+      {/* Pool Selector Modal */}
+      <Modal
+        title="Select Pool"
+        open={showPoolSelector}
+        onCancel={() => setShowPoolSelector(false)}
+        footer={null}
+        width={600}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <Alert
+            message="Multiple Pools Available"
+            description={`Found ${availablePools.length} pools for ${tokenIn.symbol}/${tokenOut.symbol}. Select the pool you want to trade on.`}
+            type="info"
+            showIcon
+          />
+          
+          <List
+            dataSource={availablePools}
+            renderItem={(pool: any) => {
+              const { minPrice, maxPrice } = getPriceRangeFromTicks(pool.tickLower ?? 0, pool.tickUpper ?? 0);
+              const isSelected = selectedPoolIndex === pool.index;
+              const feeDisplay = FEE_TIERS[pool.index]?.label || `${Number(pool.fee) / 10000}%`;
+              
+              return (
+                <Card
+                  key={pool.pool}
+                  size="small"
+                  hoverable
+                  style={{ 
+                    marginBottom: 12,
+                    borderColor: isSelected ? '#7c3aed' : undefined,
+                    background: isSelected ? 'rgba(124, 58, 237, 0.05)' : undefined
+                  }}
+                  onClick={() => {
+                    setSelectedPoolIndex(pool.index);
+                    setPoolLiquidity(pool.liquidity);
+                    setSelectedFee(FEE_TIERS[pool.index]?.value || 3000);
+                    setShowPoolSelector(false);
+                    message.success(`Selected pool with ${feeDisplay} fee`);
+                  }}
+                >
+                  <Row justify="space-between" align="middle">
+                    <Col>
+                      <Space direction="vertical" size={4}>
+                        <Space>
+                          <Tag color="purple">{feeDisplay}</Tag>
+                          {isSelected && <Tag color="green">Selected</Tag>}
+                        </Space>
+                        <Text strong>Liquidity: {formatBalance(formatUnits(pool.liquidity, 18))}</Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          Price Range: {formatPriceUtil(minPrice)} - {formatPriceUtil(maxPrice)}
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          Pool: {pool.pool.slice(0, 10)}...{pool.pool.slice(-8)}
+                        </Text>
+                      </Space>
+                    </Col>
+                    <Col>
+                      {(() => {
+                        const currentPrice = parseFloat(formatPriceUtil(Number(pool.sqrtPriceX96)));
+                        const position = ((currentPrice - minPrice) / (maxPrice - minPrice)) * 100;
+                        const isInRange = currentPrice >= minPrice && currentPrice <= maxPrice;
+                        
+                        return (
+                          <Tooltip title={`Current price is ${isInRange ? 'within' : 'outside'} range`}>
+                            <Progress
+                              type="circle"
+                              percent={Math.min(100, Math.max(0, position))}
+                              width={60}
+                              strokeColor={isInRange ? '#52c41a' : '#ff4d4f'}
+                              format={(percent) => isInRange ? '✓' : '✗'}
+                            />
+                          </Tooltip>
+                        );
+                      })()}
+                    </Col>
+                  </Row>
+                </Card>
+              );
+            }}
+          />
+        </Space>
+      </Modal>
     </div>
   );
 }

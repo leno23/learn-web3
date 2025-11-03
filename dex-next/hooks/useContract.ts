@@ -30,7 +30,7 @@ export function useEthersSigner() {
 
   useEffect(() => {
     if (!walletClient) {
-      console.log('⚠️ No walletClient, setting signer to null');
+      // console.log('⚠️ No walletClient, setting signer to null');
       setSigner(null);
       return;
     }
@@ -63,7 +63,7 @@ export function useEthersSigner() {
     getSigner();
   }, [walletClient]);
 
-  console.log('📊 useEthersSigner returning signer:', !!signer);
+  // console.log('📊 useEthersSigner returning signer:', !!signer);
   return signer;
 }
 

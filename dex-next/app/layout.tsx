@@ -1,3 +1,4 @@
+import '@ant-design/v5-patch-for-react-19';
 import type { Metadata } from 'next';
 import Providers from './providers';
 import '@rainbow-me/rainbowkit/styles.css';

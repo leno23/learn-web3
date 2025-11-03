@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
+    "@ant-design/v5-patch-for-react-19": "^1.0.3",
     "@rainbow-me/rainbowkit": "^2.2.9",
     "@tanstack/react-query": "^5.90.5",
     "antd": "^5.27.6",

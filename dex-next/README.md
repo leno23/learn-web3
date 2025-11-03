@@ -159,8 +159,35 @@ const token0 = searchParams.get('token0');
 
 ## 🚀 部署
 
-可以部署到任何支持Next.js的平台:
-- Vercel (推荐)
+### Cloudflare Pages（推荐）
+
+本项目已配置好 Cloudflare Pages 部署支持。
+
+#### 快速开始
+```bash
+# 安装依赖
+pnpm add -D @cloudflare/next-on-pages wrangler
+
+# 一键部署
+npx wrangler login
+pnpm run deploy
+```
+
+#### ⚠️ 重要：修复 Node.JS Compatibility Error
+
+如果部署后遇到 `Node.JS Compatibility Error`，请查看：
+- 📖 [快速修复指南](./FIX_NODEJS_COMPAT_ERROR.md) - 3 分钟解决
+- 🔧 [完整故障排除](./TROUBLESHOOTING.md) - 所有常见问题
+
+#### 📚 完整部署文档
+- [快速开始](./QUICKSTART_CLOUDFLARE.md) - 最简单的部署方法
+- [完整指南](./CLOUDFLARE_DEPLOY.md) - 详细配置说明
+- [部署检查清单](./DEPLOYMENT_CHECKLIST.md) - 确保不遗漏任何步骤
+
+### 其他平台
+
+也可以部署到：
+- Vercel
 - Netlify
 - 自托管服务器
 

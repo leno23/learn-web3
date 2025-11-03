@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { formatUnits } from 'ethers';
-import { usePoolManager } from '../hooks/useContract';
+import { formatUnits, Contract } from 'ethers';
+import { usePoolManager, useEthersSigner } from '../hooks/useContract';
 import { TOKEN_LIST } from '../config/contracts';
-import { Card, Button, List, Typography, Row, Col, Tag, Empty, Statistic, Space, Divider, message } from 'antd';
-import { ReloadOutlined, SwapOutlined, PlusOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { ERC20_ABI } from '../config/abis';
+import { Card, Button, List, Typography, Row, Col, Tag, Empty, Statistic, Space, Divider, message, Progress, Tooltip } from 'antd';
+import { ReloadOutlined, SwapOutlined, PlusOutlined, InfoCircleOutlined, ArrowRightOutlined } from '@ant-design/icons';
+import { getPriceRangeFromTicks, formatPrice as formatPriceUtil } from '../utils/priceUtils';
 
 const { Text, Title } = Typography;
 
@@ -31,24 +33,32 @@ interface Pool {
   liquidity: bigint;
 }
 
+interface PoolWithBalances extends Pool {
+  token0Balance?: bigint;
+  token1Balance?: bigint;
+  token0BalanceStr?: string;
+  token1BalanceStr?: string;
+}
+
 interface PoolListProps {
   refreshKey?: number; // 用于触发外部刷新
 }
 
 export default function PoolList({ refreshKey }: PoolListProps) {
   const router = useRouter();
-  const [pools, setPools] = useState<Pool[]>([]);
+  const [pools, setPools] = useState<PoolWithBalances[]>([]);
   const [loading, setLoading] = useState(false);
   const poolManager = usePoolManager();
+  const signer = useEthersSigner();
 
   // 根据地址查找代币符号
   const getTokenSymbol = (address: string): string => {
-    const token = TOKEN_LIST.find(t => t.address.toLowerCase() === address.toLowerCase());
-    return token?.symbol || `${address.slice(0, 6)}...${address.slice(-4)}`;
+    const token = TOKEN_LIST.find(t => t.address.toLowerCase() === address?.toLowerCase());
+    return token?.symbol || `${address?.slice(0, 6)}...${address?.slice(-4)}`;
   };
 
   // 验证池子数据是否有效
-  const isValidPool = (pool: any): boolean => {
+  const isValidPool = (pool: Pool): boolean => {
     try {
       return !!(
         pool &&
@@ -58,8 +68,44 @@ export default function PoolList({ refreshKey }: PoolListProps) {
         typeof pool.index !== 'undefined' &&
         typeof pool.fee !== 'undefined'
       );
-    } catch (error) {
+    } catch {
       return false;
+    }
+  };
+
+  // 获取池子的token余额
+  const fetchPoolBalances = async (pool: Pool): Promise<PoolWithBalances> => {
+    if (!signer) {
+      return { ...pool };
+    }
+
+    // 验证池子地址是否有效
+    if (!pool.pool || pool.pool === '0x0000000000000000000000000000000000000000') {
+      console.warn('Invalid pool address:', pool.pool);
+      return { ...pool };
+    }
+
+    try {
+      const token0Contract = new Contract(pool.token0, ERC20_ABI, signer);
+      const token1Contract = new Contract(pool.token1, ERC20_ABI, signer);
+
+      const [balance0, balance1] = await Promise.all([
+        token0Contract.balanceOf(pool.pool),
+        token1Contract.balanceOf(pool.pool),
+      ]);
+
+      return {
+        ...pool,
+        token0Balance: balance0,
+        token1Balance: balance1,
+        // 添加字符串版本供显示使用，避免BigInt序列化问题
+        token0BalanceStr: balance0.toString(),
+        token1BalanceStr: balance1.toString(),
+      };
+    } catch (error) {
+      console.error('Error fetching pool balances for pool:', pool.pool, error);
+      // 即使获取余额失败，也返回池子基本信息
+      return { ...pool };
     }
   };
 
@@ -84,12 +130,23 @@ export default function PoolList({ refreshKey }: PoolListProps) {
         : [];
       
       console.log('✅ [PoolList] Valid pools:', validPools.length);
-      setPools(validPools);
+      
+      // 获取每个池子的token余额
+      if (validPools.length > 0 && signer) {
+        console.log('💰 [PoolList] Fetching token balances for pools...');
+        const poolsWithBalances = await Promise.all(
+          validPools.map(pool => fetchPoolBalances(pool))
+        );
+        setPools(poolsWithBalances);
+        console.log('✅ [PoolList] Pools with balances:', poolsWithBalances);
+      } else {
+        setPools(validPools);
+      }
       
       if (validPools.length === 0) {
         console.log('ℹ️ [PoolList] No valid pools found');
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('❌ [PoolList] Error fetching pools:', error);
       setPools([]); // 出错时设置为空数组
     } finally {
@@ -102,7 +159,7 @@ export default function PoolList({ refreshKey }: PoolListProps) {
     console.log('🔄 [PoolList] useEffect triggered, fetching pools...');
     fetchPools();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [poolManager]);
+  }, [poolManager, signer]);
 
   // 监听外部刷新请求
   useEffect(() => {
@@ -159,7 +216,7 @@ export default function PoolList({ refreshKey }: PoolListProps) {
         return FEE_TIER_MAP[pool.index];
       }
       if (pool.fee !== undefined && pool.fee > 0) {
-        return `${(pool.fee / 10000).toFixed(2)}%`;
+        return `${(Number(pool.fee) / 10000).toFixed(2)}%`;
       }
       return 'N/A';
     } catch (error) {
@@ -325,24 +382,110 @@ export default function PoolList({ refreshKey }: PoolListProps) {
                     </Col>
                     <Col span={12}>
                       <Statistic
-                        title={<Text style={{ fontSize: 12 }}>Price</Text>}
+                        title={<Text style={{ fontSize: 12 }}>Current Price</Text>}
                         value={formatPriceDisplay(pool.sqrtPriceX96)}
                         valueStyle={{ fontSize: 16, fontWeight: 600 }}
                       />
                     </Col>
+                    
+                    {/* Token Reserves */}
+                    {(pool.token0Balance || pool.token1Balance) && (
+                      <>
+                        <Col span={24}>
+                          <Divider style={{ margin: '8px 0' }}>
+                            <Text type="secondary" style={{ fontSize: 11 }}>Token Reserves</Text>
+                          </Divider>
+                        </Col>
+                        <Col span={12}>
+                          <Statistic
+                            title={
+                              <Space size={4}>
+                                <Text style={{ fontSize: 11 }}>{getTokenSymbol(pool.token0 || '')}</Text>
+                                <Tag color="blue" style={{ fontSize: 9, padding: '0 4px', margin: 0 }}>T0</Tag>
+                              </Space>
+                            }
+                            value={pool.token0Balance ? parseFloat(formatUnits(pool.token0Balance, 18)).toFixed(2) : '0'}
+                            valueStyle={{ fontSize: 14, fontWeight: 600, color: '#1890ff' }}
+                          />
+                        </Col>
+                        <Col span={12}>
+                          <Statistic
+                            title={
+                              <Space size={4}>
+                                <Text style={{ fontSize: 11 }}>{getTokenSymbol(pool.token1 || '')}</Text>
+                                <Tag color="cyan" style={{ fontSize: 9, padding: '0 4px', margin: 0 }}>T1</Tag>
+                              </Space>
+                            }
+                            value={pool.token1Balance ? parseFloat(formatUnits(pool.token1Balance, 18)).toFixed(2) : '0'}
+                            valueStyle={{ fontSize: 14, fontWeight: 600, color: '#13c2c2' }}
+                          />
+                        </Col>
+                      </>
+                    )}
+                    
+                    {/* Price Range Display */}
                     <Col span={24}>
-                      <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                        <Row justify="space-between">
-                          <Text type="secondary" style={{ fontSize: 12 }}>Current Tick:</Text>
-                          <Text strong style={{ fontSize: 12 }}>{pool.tick ?? 0}</Text>
+                      <Card size="small" style={{ background: 'rgba(255,255,255,0.5)', marginTop: 8 }}>
+                        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                          <Row justify="space-between" align="middle">
+                            <Text type="secondary" style={{ fontSize: 11 }}>Price Range:</Text>
+                            <Tooltip title="Pool can only trade within this price range">
+                              <InfoCircleOutlined style={{ fontSize: 11, color: '#999' }} />
+                            </Tooltip>
+                          </Row>
+                          <Row justify="space-between" align="middle" style={{ marginBottom: 4 }}>
+                            <Space size={4}>
+                              <Tag color="blue" style={{ fontSize: 10, padding: '0 4px', margin: 0 }}>
+                                Min
+                              </Tag>
+                              <Text strong style={{ fontSize: 11 }}>
+                                {formatPriceUtil(getPriceRangeFromTicks(pool.tickLower ?? 0, pool.tickUpper ?? 0).minPrice)}
+                              </Text>
+                            </Space>
+                            <ArrowRightOutlined style={{ fontSize: 10, color: '#999' }} />
+                            <Space size={4}>
+                              <Tag color="green" style={{ fontSize: 10, padding: '0 4px', margin: 0 }}>
+                                Max
+                              </Tag>
+                              <Text strong style={{ fontSize: 11 }}>
+                                {formatPriceUtil(getPriceRangeFromTicks(pool.tickLower ?? 0, pool.tickUpper ?? 0).maxPrice)}
+                              </Text>
+                            </Space>
                         </Row>
+                          
+                          {/* Price Position Indicator */}
+                          {(() => {
+                            const currentPrice = parseFloat(formatPriceDisplay(pool.sqrtPriceX96));
+                            const { minPrice, maxPrice } = getPriceRangeFromTicks(pool.tickLower ?? 0, pool.tickUpper ?? 0);
+                            const position = ((currentPrice - minPrice) / (maxPrice - minPrice)) * 100;
+                            const isInRange = currentPrice >= minPrice && currentPrice <= maxPrice;
+                            
+                            return (
+                              <Tooltip title={`Current price is ${isInRange ? 'within' : 'outside'} the active range`}>
+                                <Progress 
+                                  percent={Math.min(100, Math.max(0, position))}
+                                  showInfo={false}
+                                  strokeColor={isInRange ? '#52c41a' : '#ff4d4f'}
+                                  size="small"
+                                  style={{ marginBottom: 0 }}
+                                />
+                              </Tooltip>
+                            );
+                          })()}
+                          
                         <Row justify="space-between">
-                          <Text type="secondary" style={{ fontSize: 12 }}>Tick Range:</Text>
-                          <Text strong style={{ fontSize: 12 }}>
-                            {pool.tickLower ?? 0} → {pool.tickUpper ?? 0}
+                            <Text type="secondary" style={{ fontSize: 10 }}>
+                              Tick: {pool.tickLower ?? 0}
+                            </Text>
+                            <Text type="secondary" style={{ fontSize: 10 }}>
+                              Current: {pool.tick ?? 0}
+                            </Text>
+                            <Text type="secondary" style={{ fontSize: 10 }}>
+                              Tick: {pool.tickUpper ?? 0}
                           </Text>
                         </Row>
                       </Space>
+                      </Card>
                     </Col>
                   </Row>
 
@@ -400,57 +543,95 @@ export default function PoolList({ refreshKey }: PoolListProps) {
             borderRadius: 8
           }}
         >
-          <Row gutter={16} justify="center">
-            <Col>
-              <Statistic
-                title="Total Pools"
-                value={pools.length}
-                prefix={<InfoCircleOutlined />}
-                valueStyle={{ fontSize: 20, color: '#7c3aed' }}
-              />
-            </Col>
-            <Col>
-              <Statistic
-                title="Total Liquidity"
-                value={(() => {
-                  try {
-                    const total = pools.reduce((sum, pool) => {
-                      try {
-                        if (!pool || !pool.liquidity) return sum;
-                        const liquidity = parseFloat(formatUnits(pool.liquidity, 18));
-                        return sum + (isNaN(liquidity) ? 0 : liquidity);
-                      } catch (error) {
-                        console.error('Error calculating pool liquidity:', error);
-                         return sum;
+          <Space direction="vertical" style={{ width: '100%' }} size="large">
+            <Row gutter={16} justify="center">
+              <Col>
+                <Statistic
+                  title="Total Pools"
+                  value={pools.length}
+                  prefix={<InfoCircleOutlined />}
+                  valueStyle={{ fontSize: 20, color: '#7c3aed' }}
+                />
+              </Col>
+              <Col>
+                <Statistic
+                  title="Total Liquidity"
+                  value={(() => {
+                    try {
+                      const total = pools.reduce((sum, pool) => {
+                        try {
+                          if (!pool || !pool.liquidity) return sum;
+                          const liquidity = parseFloat(formatUnits(pool.liquidity, 18));
+                          return sum + (isNaN(liquidity) ? 0 : liquidity);
+                        } catch (error) {
+                          console.error('Error calculating pool liquidity:', error);
+                           return sum;
+                        }
+                      }, 0);
+                      return total.toFixed(2);
+                    } catch (error) {
+                      console.error('Error calculating total liquidity:', error);
+                      return '0.00';
+                    }
+                  })()}
+                  valueStyle={{ fontSize: 20, color: '#7c3aed' }}
+                />
+              </Col>
+              <Col>
+                <Statistic
+                  title="Active Pairs"
+                  value={(() => {
+                    try {
+                      const pairs = pools
+                        .filter(p => p && p.token0 && p.token1)
+                        .map(p => `${p.token0}-${p.token1}`);
+                      return new Set(pairs).size;
+                    } catch (error) {
+                      console.error('Error calculating active pairs:', error);
+                      return 0;
+                    }
+                  })()}
+                  valueStyle={{ fontSize: 20, color: '#7c3aed' }}
+                />
+              </Col>
+            </Row>
+            
+            {/* Token Reserves Summary */}
+            {pools.some(p => p.token0Balance || p.token1Balance) && (
+              <>
+                <Divider style={{ margin: 0 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Total Token Reserves</Text>
+                </Divider>
+                <Row gutter={16} justify="center">
+                  {(() => {
+                    // 统计所有token的总储备量
+                    const tokenTotals: Record<string, bigint> = {};
+                    
+                    pools.forEach(pool => {
+                      if (pool.token0Balance) {
+                        const symbol = getTokenSymbol(pool.token0);
+                        tokenTotals[symbol] = (tokenTotals[symbol] || 0n) + pool.token0Balance;
                       }
-                    }, 0);
-                    return total.toFixed(2);
-                  } catch (error) {
-                    console.error('Error calculating total liquidity:', error);
-                    return '0.00';
-                  }
-                })()}
-                valueStyle={{ fontSize: 20, color: '#7c3aed' }}
-              />
-            </Col>
-            <Col>
-              <Statistic
-                title="Active Pairs"
-                value={(() => {
-                  try {
-                    const pairs = pools
-                      .filter(p => p && p.token0 && p.token1)
-                      .map(p => `${p.token0}-${p.token1}`);
-                    return new Set(pairs).size;
-                  } catch (error) {
-                    console.error('Error calculating active pairs:', error);
-                    return 0;
-                  }
-                })()}
-                valueStyle={{ fontSize: 20, color: '#7c3aed' }}
-              />
-            </Col>
-          </Row>
+                      if (pool.token1Balance) {
+                        const symbol = getTokenSymbol(pool.token1);
+                        tokenTotals[symbol] = (tokenTotals[symbol] || 0n) + pool.token1Balance;
+                      }
+                    });
+                    
+                    return Object.entries(tokenTotals).map(([symbol, total]) => (
+                      <Col key={symbol}>
+                        <Statistic
+                          title={symbol}
+                          value={parseFloat(formatUnits(total, 18)).toFixed(2)}
+                          valueStyle={{ fontSize: 16, color: '#7c3aed' }}
+                        />
+                      </Col>
+                    ));
+                  })()}
+                </Row>
+              </>
+            )}
+          </Space>
         </Card>
       )}
     </Card>
