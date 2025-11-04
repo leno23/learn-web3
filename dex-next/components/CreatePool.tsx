@@ -171,15 +171,6 @@ export default function CreatePool({ onPoolCreated }: CreatePoolProps) {
           ? [token0, token1]
           : [token1, token0];
 
-      console.log('Creating pool with params:', {
-        token0: sortedToken0.address,
-        token1: sortedToken1.address,
-        fee: selectedFee,
-        tickLower: tickRange.tickLower,
-        tickUpper: tickRange.tickUpper,
-        sqrtPriceX96: sqrtPriceX96.toString(),
-      });
-
       const tx = await poolManager.createAndInitializePoolIfNecessary({
         token0: sortedToken0.address,
         token1: sortedToken1.address,

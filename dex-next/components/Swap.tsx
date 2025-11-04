@@ -49,7 +49,7 @@ export default function Swap() {
   const [showPoolSelector, setShowPoolSelector] = useState(false);
   const [poolLiquidity, setPoolLiquidity] = useState<bigint>(0n);
   const [partialExecutionWarning, setPartialExecutionWarning] = useState<string>('');
-  const [swapMode, setSwapMode] = useState<'exactInput' | 'exactOutput'>('exactInput');
+  const [lastEditedField, setLastEditedField] = useState<'input' | 'output'>('input'); // 记录用户最后编辑的字段
   
   const { balance: balanceIn, refetch: refetchBalanceIn, loading: loadingBalanceIn } = useTokenBalance(tokenIn.address);
   const { balance: balanceOut, refetch: refetchBalanceOut, loading: loadingBalanceOut } = useTokenBalance(tokenOut.address);
@@ -73,7 +73,6 @@ export default function Swap() {
 
   // 刷新所有余额
   const refreshBalances = () => {
-    console.log('🔄 Manually refreshing all balances...');
     refetchBalanceInRef.current();
     refetchBalanceOutRef.current();
     refetchEthBalanceRef.current();
@@ -91,7 +90,6 @@ export default function Swap() {
       const tokenContract = new Contract(tokenIn.address, ERC20_ABI, signer);
       const currentAllowance = await tokenContract.allowance(address, CONTRACTS.SwapRouter);
       setAllowance(currentAllowance.toString());
-      console.log('💰 Current allowance:', formatUnits(currentAllowance, 18));
     } catch (error) {
       console.error('Error checking allowance:', error);
       setAllowance('0');
@@ -102,10 +100,6 @@ export default function Swap() {
 
   // ✅ 当代币切换时强制刷新余额（不依赖 refetch 函数）
   useEffect(() => {
-    console.log('🔄 Token changed, refreshing balances...', {
-      tokenIn: tokenIn.symbol,
-      tokenOut: tokenOut.symbol,
-    });
     // 使用 ref 访问最新的 refetch 函数
     refetchBalanceInRef.current();
     refetchBalanceOutRef.current();
@@ -243,12 +237,10 @@ export default function Swap() {
     const manager = poolManagerRef.current;
     
     if (!router) {
-      console.log('⏳ Swap router not ready');
       return;
     }
 
     if (!manager) {
-      console.log('⏳ Pool manager not ready');
       return;
     }
 
@@ -267,18 +259,12 @@ export default function Swap() {
       const token0 = zeroForOne ? tokenIn.address : tokenOut.address;
       const token1 = zeroForOne ? tokenOut.address : tokenIn.address;
       
-      console.log('🔍 Checking pool...', {
-        token0: token0.slice(0, 10) + '...',
-        token1: token1.slice(0, 10) + '...',
-        index: poolIndexToUse,
-      });
-      
       // 检查池子是否存在
       const poolAddress = await manager.getPool(token0, token1, poolIndexToUse);
-      console.log('📍 Pool address:', poolAddress);
       
       if (!poolAddress || poolAddress === '0x0000000000000000000000000000000000000000') {
-        message.error(`Pool does not exist for ${tokenIn.symbol}/${tokenOut.symbol} with ${selectedFeeTier?.label} fee tier. Please create the pool first in the Liquidity page.`);
+        const feeTier = FEE_TIERS.find(f => f.value === selectedFee);
+        message.error(`Pool does not exist for ${tokenIn.symbol}/${tokenOut.symbol} with ${feeTier?.label || 'selected'} fee tier. Please create the pool first in the Liquidity page.`);
         setAmountOut('');
         setQuoteLoading(false);
         return;
@@ -290,15 +276,6 @@ export default function Swap() {
       const sqrtPriceLimitX96 = zeroForOne 
         ? BigInt('4295128740')  // MIN_SQRT_PRICE + 1
         : BigInt('1461446703485210103287273052203988822378723970341');  // MAX_SQRT_PRICE - 1
-      
-      console.log('💰 Getting quote...', {
-        tokenIn: tokenIn.symbol,
-        tokenOut: tokenOut.symbol,
-        amount: amount,
-        mode: isOutput ? 'exactOutput' : 'exactInput',
-        poolIndex: poolIndexToUse,
-        zeroForOne,
-      });
       
       if (isOutput) {
         // exactOutput: 指定输出，获取需要的输入
@@ -312,7 +289,6 @@ export default function Swap() {
 
         const formattedQuote = formatUnits(quote, 18);
         setAmountIn(formattedQuote);
-        console.log('✅ Quote received (exactOutput):', formattedQuote);
       } else {
         // exactInput: 指定输入，获取输出
         const quote = await router.quoteExactInput.staticCall({
@@ -325,7 +301,6 @@ export default function Swap() {
 
         const formattedQuote = formatUnits(quote, 18);
         setAmountOut(formattedQuote);
-        console.log('✅ Quote received (exactInput):', formattedQuote);
       }
     } catch (error: any) {
       console.error('❌ Error getting quote:', error);
@@ -359,14 +334,14 @@ export default function Swap() {
   // 处理输入金额变化 - 自动获取报价
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (swapMode === 'exactInput' && amountIn) {
-        console.log('🔄 Input changed, getting quote for:', amountIn);
-        getQuote(amountIn, false);
-      } else if (swapMode === 'exactOutput' && amountOut) {
-        console.log('🔄 Output changed, getting quote for:', amountOut);
-        getQuote(amountOut, true);
+      // 根据最后编辑的字段自动选择模式
+      if (lastEditedField === 'input' && amountIn) {
+        getQuote(amountIn, false); // exact input
+      } else if (lastEditedField === 'output' && amountOut) {
+        getQuote(amountOut, true); // exact output
       } else {
-        if (swapMode === 'exactInput') {
+        // 清空另一个字段
+        if (lastEditedField === 'input') {
           setAmountOut('');
         } else {
           setAmountIn('');
@@ -375,7 +350,7 @@ export default function Swap() {
     }, 500); // 防抖 500ms
 
     return () => clearTimeout(timer);
-  }, [amountIn, amountOut, swapMode, getQuote]);
+  }, [amountIn, amountOut, lastEditedField, getQuote]);
 
   // 授权代币
   const approveToken = async () => {
@@ -447,7 +422,8 @@ export default function Swap() {
         : BigInt('1461446703485210103287273052203988822378723970341');  // MAX_SQRT_PRICE - 1
 
       let tx;
-      if (swapMode === 'exactInput') {
+      // 根据最后编辑的字段选择交易模式
+      if (lastEditedField === 'input') {
         // Exact Input: 指定输入金额，最小化输出
         const amountInWei = parseUnits(amountIn, 18);
         const amountOutMin = parseUnits((parseFloat(amountOut) * 0.95).toString(), 18); // 5% slippage
@@ -480,9 +456,10 @@ export default function Swap() {
       }
 
       await tx.wait();
-      message.success(`Swap successful! (${swapMode})`);
+      message.success('Swap successful!');
       setAmountIn('');
       setAmountOut('');
+      setLastEditedField('input'); // 重置为默认
       // 刷新余额
       refreshBalances();
     } catch (error: any) {
@@ -505,8 +482,11 @@ export default function Swap() {
   const switchTokens = () => {
     setTokenIn(tokenOut);
     setTokenOut(tokenIn);
-    setAmountIn('');
-    setAmountOut('');
+    // 交换金额并保持编辑状态
+    setAmountIn(amountOut);
+    setAmountOut(amountIn);
+    // 切换最后编辑的字段
+    setLastEditedField(lastEditedField === 'input' ? 'output' : 'input');
   };
 
   return (
@@ -535,39 +515,6 @@ export default function Swap() {
             )}
           </Col>
         </Row>
-
-        {/* Swap Mode 选择 */}
-        <div style={{ marginBottom: 24 }}>
-          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>Swap Mode</Text>
-          <Segmented
-            options={[
-              { 
-                label: 'Exact Input', 
-                value: 'exactInput',
-                icon: <ThunderboltOutlined />
-              },
-              { 
-                label: 'Exact Output', 
-                value: 'exactOutput',
-                icon: <SwapOutlined />
-              },
-            ]}
-            value={swapMode}
-            onChange={(val) => {
-              setSwapMode(val as 'exactInput' | 'exactOutput');
-              // 清空金额，避免混淆
-              setAmountIn('');
-              setAmountOut('');
-            }}
-            block
-            disabled={loading}
-          />
-          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-            {swapMode === 'exactInput' 
-              ? '💡 Specify input amount, maximize output' 
-              : '💡 Specify output amount, minimize input'}
-          </Text>
-        </div>
 
         {/* 费率选择 */}
         <div style={{ marginBottom: 24 }}>
@@ -670,8 +617,11 @@ export default function Swap() {
                 style={{ width: '100%', fontSize: 24, fontWeight: 600 }}
                 placeholder="0.0"
                 value={amountIn ? parseFloat(amountIn) : undefined}
-                onChange={(val) => setAmountIn(val?.toString() || '')}
-                disabled={loading || swapMode === 'exactOutput'}
+                onChange={(val) => {
+                  setAmountIn(val?.toString() || '');
+                  setLastEditedField('input'); // 标记为编辑输入框
+                }}
+                disabled={loading}
                 controls={false}
                 min={0}
                 stringMode
@@ -722,7 +672,7 @@ export default function Swap() {
           style={{ marginBottom: 16 }}
         >
           <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-            To {swapMode === 'exactInput' ? '(estimated)' : ''}
+            To {lastEditedField === 'input' ? '(estimated)' : ''}
           </Text>
           <Row gutter={12} align="middle">
             <Col flex="auto">
@@ -731,8 +681,11 @@ export default function Swap() {
                 bordered={false}
                 placeholder="0.0"
                 value={amountOut ? parseFloat(amountOut) : undefined}
-                onChange={(val) => setAmountOut(val?.toString() || '')}
-                disabled={loading || swapMode === 'exactInput'}
+                onChange={(val) => {
+                  setAmountOut(val?.toString() || '');
+                  setLastEditedField('output'); // 标记为编辑输出框
+                }}
+                disabled={loading}
                 controls={false}
                 min={0}
                 stringMode

@@ -6,8 +6,9 @@ import { formatUnits, Contract, parseUnits, MaxUint256 } from 'ethers';
 import { usePositionManager, useEthersSigner, usePoolManager } from '../hooks/useContract';
 import { TOKEN_LIST, CONTRACTS } from '../config/contracts';
 import { ERC20_ABI, POOL_ABI, Pair } from '../config/abis';
-import { Card, Button, Space, message, Typography, Row, Col, List, Tag, Empty, Descriptions, Statistic, Divider, Modal, Select, InputNumber, Alert } from 'antd';
-import { ReloadOutlined, DollarOutlined, DeleteOutlined, WalletOutlined, PlusOutlined, CheckCircleOutlined, PauseCircleOutlined, PlayCircleOutlined, LinkOutlined } from '@ant-design/icons';
+import { Card, Button, Space, message, Typography, Row, Col, Table, Tag, Empty, Divider, Modal, Select, InputNumber, Alert, Tooltip } from 'antd';
+import { ReloadOutlined, DollarOutlined, DeleteOutlined, PlusOutlined, CheckCircleOutlined, LinkOutlined } from '@ant-design/icons';
+import type { ColumnsType } from 'antd/es/table';
 
 const { Text, Title } = Typography;
 
@@ -38,7 +39,6 @@ interface PositionWithBalances extends Position {
   poolToken1BalanceStr?: string;
   userToken0ShareStr?: string;
   userToken1ShareStr?: string;
-  status?: 'running' | 'stopped';
 }
 
 // Fee tier map
@@ -61,14 +61,22 @@ export default function Positions() {
   const [showAddPositionModal, setShowAddPositionModal] = useState(false);
   const [pairs, setPairs] = useState<Pair[]>([]);
   const [selectedPair, setSelectedPair] = useState<Pair | null>(null);
-  const [availablePools, setAvailablePools] = useState<any[]>([]);
+  const [availablePools, setAvailablePools] = useState<Pool[]>([]);
+
+  interface Pool {
+    pool: string;
+    token0: string;
+    token1: string;
+    index: number;
+    fee: bigint;
+    liquidity: bigint;
+    sqrtPriceX96: bigint;
+    tick: number;
+  }
   const [selectedPoolIndex, setSelectedPoolIndex] = useState<number | null>(null);
   const [amount0, setAmount0] = useState('');
   const [amount1, setAmount1] = useState('');
   const [addPositionLoading, setAddPositionLoading] = useState(false);
-  
-  console.log(positions);
-  
 
   // 根据地址查找代币符号
   const getTokenSymbol = (address: string): string => {
@@ -140,75 +148,48 @@ export default function Positions() {
 
   // 获取所有持仓
   const fetchPositions = async () => {
-    console.log('🔍 [Positions] fetchPositions called:', {
-      isConnected,
-      address,
-      hasPositionManager: !!positionManager
-    });
-
     if (!isConnected || !address || !positionManager) {
-      console.log('⚠️ [Positions] Missing requirements, skipping fetch');
       return;
     }
 
     setLoading(true);
     try {
-      console.log('📡 [Positions] Calling positionManager.getAllPositions()...');
       const allPositions = await positionManager.getAllPositions();
-      console.log('✅ [Positions] All positions:', allPositions);
       
       // 将 ethers Result 类型转换为普通对象数组
-      const positionsArray = allPositions.map((pos: any) => {
-        const obj = pos.toObject();
-        console.log('📦 Position object:', obj);
-        return obj as Position;
+      const positionsArray = allPositions.map((pos: Position & { toObject?: () => Position }) => {
+        if (pos.toObject) {
+          return pos.toObject() as Position;
+        }
+        return pos as Position;
       });
       
       // 过滤当前用户的持仓
       const userPositions = positionsArray.filter(
-        (pos: any) => pos.owner.toLowerCase() === address.toLowerCase()
+        (pos: Position) => pos.owner.toLowerCase() === address.toLowerCase()
       );
       
-      console.log('👤 [Positions] User positions:', userPositions);
-      
-      // 获取每个持仓的token余额信息和状态
+      // 获取每个持仓的token余额信息
       if (userPositions.length > 0 && signer && poolManager) {
-        console.log('💰 [Positions] Fetching token balances for positions...');
         const positionsWithBalances = await Promise.all(
           userPositions.map(async (pos: Position) => {
-            const balances = await fetchPositionBalances(pos);
-            
-            // 尝试获取position的状态
-            let status: 'running' | 'stopped' = 'running';
-            try {
-              const isPaused = await positionManager.isPaused(pos.id);
-              status = isPaused ? 'stopped' : 'running';
-            } catch (error) {
-              console.log('Cannot get position status, defaulting to running');
-            }
-            
-            return { ...balances, status };
+            return await fetchPositionBalances(pos);
           })
         );
         setPositions(positionsWithBalances);
-        console.log('✅ [Positions] Positions with balances:', positionsWithBalances);
       } else {
-      setPositions(userPositions);
+        setPositions(userPositions);
       }
-      
-      if (userPositions.length === 0) {
-        console.log('ℹ️ [Positions] No positions found for user:', address);
-      }
-    } catch (error: any) {
+    } catch (error) {
       console.error('❌ [Positions] Error fetching positions:', error);
-      message.error(`Failed to fetch positions: ${error.message || 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      message.error(`Failed to fetch positions: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    console.log('🔄 [Positions] useEffect triggered, fetching positions...');
     fetchPositions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, isConnected, positionManager, poolManager, signer]);
@@ -219,7 +200,6 @@ export default function Positions() {
     
     try {
       const allPairs = await poolManager.getPairs();
-      console.log('Available pairs:', allPairs);
       setPairs(allPairs);
     } catch (error) {
       console.error('Error fetching pairs:', error);
@@ -233,12 +213,11 @@ export default function Positions() {
     
     try {
       const allPools = await poolManager.getAllPools();
-      const filteredPools = allPools.filter((pool: any) => 
+      const filteredPools = (allPools as Pool[]).filter((pool: Pool) => 
         pool.token0.toLowerCase() === pair.token0.toLowerCase() &&
         pool.token1.toLowerCase() === pair.token1.toLowerCase()
       );
       
-      console.log('Pools for pair:', filteredPools);
       setAvailablePools(filteredPools);
       
       // 自动选择第一个池子
@@ -256,6 +235,7 @@ export default function Positions() {
     if (showAddPositionModal && poolManager) {
       fetchPairs();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAddPositionModal, poolManager]);
 
   // 当选择交易对时获取池子
@@ -346,52 +326,8 @@ export default function Positions() {
     }
   };
 
-  // 暂停头寸
-  const pausePosition = async (positionId: number) => {
-    if (!positionManager) {
-      message.error('Position manager not found');
-      return;
-    }
-
-    try {
-      setActionLoading(positionId);
-      const tx = await positionManager.pause(positionId);
-      await tx.wait();
-      message.success('Position paused successfully!');
-      fetchPositions();
-    } catch (error) {
-      console.error('Error pausing position:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      message.error(`Pause failed: ${errorMessage}`);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  // 恢复头寸
-  const unpausePosition = async (positionId: number) => {
-    if (!positionManager) {
-      message.error('Position manager not found');
-      return;
-    }
-
-    try {
-      setActionLoading(positionId);
-      const tx = await positionManager.unpause(positionId);
-      await tx.wait();
-      message.success('Position unpaused successfully!');
-      fetchPositions();
-    } catch (error) {
-      console.error('Error unpausing position:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      message.error(`Unpause failed: ${errorMessage}`);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
   // 在区块链浏览器中查看
-  const viewInExplorer = (positionId: number) => {
+  const viewInExplorer = () => {
     // 使用 Sepolia 测试网络的区块链浏览器
     const explorerUrl = `https://sepolia.etherscan.io/address/${CONTRACTS.PositionManager}`;
     window.open(explorerUrl, '_blank');
@@ -411,9 +347,10 @@ export default function Positions() {
 
       message.success('Liquidity removed successfully!');
       fetchPositions(); // 刷新持仓列表
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error removing liquidity:', error);
-      message.error(`Remove liquidity failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      message.error(`Remove liquidity failed: ${errorMessage}`);
     } finally {
       setActionLoading(null);
     }
@@ -433,19 +370,187 @@ export default function Positions() {
 
       message.success('Fees collected successfully!');
       fetchPositions(); // 刷新持仓列表
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error collecting fees:', error);
-      message.error(`Collect fees failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      message.error(`Collect fees failed: ${errorMessage}`);
     } finally {
       setActionLoading(null);
     }
   };
 
+  // 定义表格列
+  const columns: ColumnsType<PositionWithBalances> = [
+    {
+      title: 'Position ID',
+      key: 'id',
+      width: 100,
+      align: 'center',
+      render: (_value, position) => (
+        <Text strong>#{position.id.toString()}</Text>
+      ),
+    },
+    {
+      title: 'Token Pair',
+      key: 'pair',
+      width: 180,
+      render: (_value, position) => (
+        <Space direction="vertical" size={0}>
+          <Text strong>
+            {getTokenSymbol(position.token0)} / {getTokenSymbol(position.token1)}
+          </Text>
+          <Space size={4}>
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {position.token0.slice(0, 6)}...{position.token0.slice(-4)}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 11 }}>/</Text>
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {position.token1.slice(0, 6)}...{position.token1.slice(-4)}
+            </Text>
+          </Space>
+        </Space>
+      ),
+    },
+    {
+      title: 'Fee Tier',
+      key: 'fee',
+      width: 100,
+      align: 'center',
+      render: (_value, position) => (
+        <Tag color="blue">{FEE_TIER_MAP[position.index] || `${Number(position.fee / 10000n)}%`}</Tag>
+      ),
+    },
+    {
+      title: 'Liquidity',
+      key: 'liquidity',
+      width: 140,
+      align: 'right',
+      sorter: (a, b) => Number(a.liquidity - b.liquidity),
+      render: (_value, position) => (
+        <Space direction="vertical" size={0} style={{ alignItems: 'flex-end' }}>
+          <Text strong>{parseFloat(formatUnits(position.liquidity, 18)).toFixed(4)}</Text>
+          {position.poolTotalLiquidity && position.poolTotalLiquidity > 0n && (
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {((Number(position.liquidity) / Number(position.poolTotalLiquidity)) * 100).toFixed(2)}%
+            </Text>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: 'Your Token Amounts',
+      key: 'amounts',
+      width: 220,
+      render: (_value, position) => {
+        if (!position.userToken0Share && !position.userToken1Share) {
+          return <Text type="secondary">No data</Text>;
+        }
+        return (
+          <Space direction="vertical" size={4}>
+            <Space size={4}>
+              <Tag color="blue" style={{ minWidth: 50 }}>{getTokenSymbol(position.token0)}</Tag>
+              <Text style={{ fontSize: 12 }}>
+                {position.userToken0Share ? parseFloat(formatUnits(position.userToken0Share, 18)).toFixed(4) : '0'}
+              </Text>
+            </Space>
+            <Space size={4}>
+              <Tag color="cyan" style={{ minWidth: 50 }}>{getTokenSymbol(position.token1)}</Tag>
+              <Text style={{ fontSize: 12 }}>
+                {position.userToken1Share ? parseFloat(formatUnits(position.userToken1Share, 18)).toFixed(4) : '0'}
+              </Text>
+            </Space>
+          </Space>
+        );
+      },
+    },
+    {
+      title: 'Tick Range',
+      key: 'tickRange',
+      width: 140,
+      align: 'center',
+      render: (_value, position) => (
+        <Space direction="vertical" size={0}>
+          <Text style={{ fontSize: 12 }}>
+            {position.tickLower} → {position.tickUpper}
+          </Text>
+          <Text type="secondary" style={{ fontSize: 10 }}>
+            Range: {position.tickUpper - position.tickLower}
+          </Text>
+        </Space>
+      ),
+    },
+    {
+      title: 'Fees Earned',
+      key: 'fees',
+      width: 180,
+      render: (_value, position) => (
+        <Space direction="vertical" size={4}>
+          <Space size={4}>
+            <Tag color="green" style={{ fontSize: 10 }}>{getTokenSymbol(position.token0)}</Tag>
+            <Text style={{ fontSize: 12 }}>
+              {parseFloat(formatUnits(position.tokensOwed0, 18)).toFixed(4)}
+            </Text>
+          </Space>
+          <Space size={4}>
+            <Tag color="green" style={{ fontSize: 10 }}>{getTokenSymbol(position.token1)}</Tag>
+            <Text style={{ fontSize: 12 }}>
+              {parseFloat(formatUnits(position.tokensOwed1, 18)).toFixed(4)}
+            </Text>
+          </Space>
+        </Space>
+      ),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 250,
+      fixed: 'right',
+      align: 'center',
+      render: (_value, position) => (
+        <Space wrap size={4}>
+          <Tooltip title="Collect earned fees">
+            <Button
+              onClick={() => collectFees(Number(position.id))}
+              disabled={actionLoading !== null}
+              loading={actionLoading === Number(position.id)}
+              icon={<DollarOutlined />}
+              type="primary"
+              size="small"
+            >
+              Collect
+            </Button>
+          </Tooltip>
+          <Tooltip title="Remove all liquidity">
+            <Button
+              onClick={() => removeLiquidity(Number(position.id))}
+              disabled={actionLoading !== null}
+              loading={actionLoading === Number(position.id)}
+              icon={<DeleteOutlined />}
+              danger
+              size="small"
+            >
+              Remove
+            </Button>
+          </Tooltip>
+          <Tooltip title="View on block explorer">
+            <Button
+              onClick={() => viewInExplorer()}
+              icon={<LinkOutlined />}
+              size="small"
+            >
+              Explorer
+            </Button>
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ];
+
   if (!isConnected) {
     return (
       <div className="positions-container">
         <Card 
-          style={{ maxWidth: 900, margin: '0 auto', borderRadius: 16 }}
+          style={{ maxWidth: 1400, margin: '0 auto', borderRadius: 16 }}
           className="positions-card"
         >
           <Title level={2} style={{ marginBottom: 24 }}>Your Positions</Title>
@@ -458,7 +563,7 @@ export default function Positions() {
   return (
     <div className="positions-container">
       <Card 
-        style={{ maxWidth: 900, margin: '0 auto', borderRadius: 16 }}
+        style={{ maxWidth: 1400, margin: '0 auto', borderRadius: 16 }}
         className="positions-card"
       >
         <Row justify="space-between" align="middle" style={{ marginBottom: 24 }}>
@@ -474,183 +579,43 @@ export default function Positions() {
               >
                 Add Position
               </Button>
-            <Button 
-              onClick={fetchPositions} 
-              disabled={loading}
-              icon={<ReloadOutlined />}
-            >
-              {loading ? 'Loading...' : 'Refresh'}
-            </Button>
+              <Button 
+                onClick={fetchPositions} 
+                disabled={loading}
+                icon={<ReloadOutlined spin={loading} />}
+              >
+                {loading ? 'Loading...' : 'Refresh'}
+              </Button>
             </Space>
           </Col>
         </Row>
 
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <Text type="secondary">Loading positions...</Text>
-          </div>
-        ) : positions.length === 0 ? (
-          <Empty description="No positions found" />
-        ) : (
-          <List
-            dataSource={positions}
-            renderItem={(position) => (
-              <Card 
-                key={position.id.toString()}
-                style={{ marginBottom: 16 }}
-                size="small"
+        <Table<PositionWithBalances>
+          columns={columns}
+          dataSource={positions}
+          loading={loading}
+          rowKey={(record) => record.id.toString()}
+          pagination={{
+            pageSize: 10,
+            showSizeChanger: true,
+            showTotal: (total) => `Total ${total} positions`,
+            pageSizeOptions: ['5', '10', '20', '50'],
+          }}
+          scroll={{ x: 1300 }}
+          sticky={{ offsetHeader: 70 }}
+          locale={{
+            emptyText: (
+              <Empty 
+                description="No positions found"
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
               >
-                <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
-                  <Col>
-                    <Space>
-                      <Title level={4} style={{ margin: 0 }}>Position #{position.id.toString()}</Title>
-                      <Tag color="blue">{(position.fee / 10000n)}%</Tag>
-                      <Tag 
-                        color={position.status === 'running' ? 'green' : 'red'} 
-                        icon={position.status === 'running' ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
-                      >
-                        {position.status === 'running' ? 'Running' : 'Stopped'}
-                      </Tag>
-                    </Space>
-                  </Col>
-                </Row>
-                
-                <Descriptions column={1} size="small" bordered>
-                  <Descriptions.Item label="Token 0">
-                    <Space>
-                      <Text strong>{getTokenSymbol(position.token0)}</Text>
-                      <Text code style={{ fontSize: 11 }}>
-                      {position.token0.slice(0, 6)}...{position.token0.slice(-4)}
-                    </Text>
-                    </Space>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Token 1">
-                    <Space>
-                      <Text strong>{getTokenSymbol(position.token1)}</Text>
-                      <Text code style={{ fontSize: 11 }}>
-                      {position.token1.slice(0, 6)}...{position.token1.slice(-4)}
-                    </Text>
-                    </Space>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Liquidity">
-                    {parseFloat(formatUnits(position.liquidity, 18)).toFixed(4)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Tick Range">
-                    {position.tickLower} → {position.tickUpper}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Fees Earned">
-                    <Space split={<Text type="secondary">/</Text>}>
-                      <Text>{parseFloat(formatUnits(position.tokensOwed0, 18)).toFixed(4)} {getTokenSymbol(position.token0)}</Text>
-                      <Text>{parseFloat(formatUnits(position.tokensOwed1, 18)).toFixed(4)} {getTokenSymbol(position.token1)}</Text>
-                    </Space>
-                  </Descriptions.Item>
-                </Descriptions>
-
-                {/* Token Amounts in Position */}
-                {(position.userToken0Share || position.userToken1Share) && (
-                  <>
-                    <Divider style={{ margin: '16px 0' }}>
-                      <Space>
-                        <WalletOutlined />
-                        <Text type="secondary" style={{ fontSize: 12 }}>Your Token Amounts</Text>
-                      </Space>
-                    </Divider>
-                    <Row gutter={16}>
-                      <Col span={12}>
-                        <Statistic
-                          title={
-                            <Space size={4}>
-                              <Text style={{ fontSize: 12 }}>{getTokenSymbol(position.token0)}</Text>
-                              <Tag color="blue" style={{ fontSize: 9, padding: '0 4px', margin: 0 }}>T0</Tag>
-                            </Space>
-                          }
-                          value={position.userToken0Share ? parseFloat(formatUnits(position.userToken0Share, 18)).toFixed(4) : '0'}
-                          valueStyle={{ fontSize: 16, fontWeight: 600, color: '#1890ff' }}
-                        />
-                        {position.poolToken0Balance && (
-                          <Text type="secondary" style={{ fontSize: 11 }}>
-                            Pool: {parseFloat(formatUnits(position.poolToken0Balance, 18)).toFixed(2)}
-                          </Text>
-                        )}
-                      </Col>
-                      <Col span={12}>
-                        <Statistic
-                          title={
-                            <Space size={4}>
-                              <Text style={{ fontSize: 12 }}>{getTokenSymbol(position.token1)}</Text>
-                              <Tag color="cyan" style={{ fontSize: 9, padding: '0 4px', margin: 0 }}>T1</Tag>
-                            </Space>
-                          }
-                          value={position.userToken1Share ? parseFloat(formatUnits(position.userToken1Share, 18)).toFixed(4) : '0'}
-                          valueStyle={{ fontSize: 16, fontWeight: 600, color: '#13c2c2' }}
-                        />
-                        {position.poolToken1Balance && (
-                          <Text type="secondary" style={{ fontSize: 11 }}>
-                            Pool: {parseFloat(formatUnits(position.poolToken1Balance, 18)).toFixed(2)}
-                          </Text>
-                        )}
-                      </Col>
-                    </Row>
-                    {position.poolTotalLiquidity && position.poolTotalLiquidity > 0n && (
-                      <div style={{ marginTop: 12 }}>
-                        <Text type="secondary" style={{ fontSize: 11 }}>
-                          Your share: {((Number(position.liquidity) / Number(position.poolTotalLiquidity)) * 100).toFixed(2)}% of pool liquidity
-                        </Text>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                <Space style={{ marginTop: 16, width: '100%' }} direction="horizontal" wrap>
-                  <Button
-                    onClick={() => collectFees(Number(position.id))}
-                    disabled={actionLoading !== null}
-                    loading={actionLoading === Number(position.id)}
-                    icon={<DollarOutlined />}
-                    type="primary"
-                  >
-                    {actionLoading === Number(position.id) ? 'Processing...' : 'Collect Fees'}
-                  </Button>
-                  <Button
-                    onClick={() => removeLiquidity(Number(position.id))}
-                    disabled={actionLoading !== null}
-                    loading={actionLoading === Number(position.id)}
-                    icon={<DeleteOutlined />}
-                    danger
-                  >
-                    {actionLoading === Number(position.id) ? 'Processing...' : 'Remove Liquidity'}
-                  </Button>
-                  {position.status === 'running' ? (
-                    <Button
-                      onClick={() => pausePosition(Number(position.id))}
-                      disabled={actionLoading !== null}
-                      loading={actionLoading === Number(position.id)}
-                      icon={<PauseCircleOutlined />}
-                    >
-                      {actionLoading === Number(position.id) ? 'Pausing...' : 'Pause'}
-                    </Button>
-                  ) : (
-                    <Button
-                      onClick={() => unpausePosition(Number(position.id))}
-                      disabled={actionLoading !== null}
-                      loading={actionLoading === Number(position.id)}
-                      icon={<PlayCircleOutlined />}
-                    >
-                      {actionLoading === Number(position.id) ? 'Unpausing...' : 'Unpause'}
-                    </Button>
-                  )}
-                  <Button
-                    onClick={() => viewInExplorer(Number(position.id))}
-                    icon={<LinkOutlined />}
-                    type="link"
-                  >
-                    Explorer
-                  </Button>
-                </Space>
-              </Card>
-            )}
-          />
-        )}
+                <Text type="secondary">
+                  Add your first position using the button above
+                </Text>
+              </Empty>
+            ),
+          }}
+        />
       </Card>
 
       {/* Add Position Modal */}
@@ -710,7 +675,7 @@ export default function Positions() {
                 {availablePools.map((pool) => (
                   <Select.Option key={pool.index} value={pool.index}>
                     <Space>
-                      <Tag color="purple">{FEE_TIER_MAP[pool.index] || `${pool.fee / 10000}%`}</Tag>
+                      <Tag color="purple">{FEE_TIER_MAP[pool.index] || `${Number(pool.fee) / 10000}%`}</Tag>
                       <Text type="secondary">Liquidity: {parseFloat(formatUnits(pool.liquidity, 18)).toFixed(2)}</Text>
                     </Space>
                   </Select.Option>

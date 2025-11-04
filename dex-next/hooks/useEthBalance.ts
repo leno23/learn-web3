@@ -20,7 +20,6 @@ export function useEthBalance() {
       const bal = await provider.getBalance(address);
       const formattedBalance = formatEther(bal);
       setBalance(formattedBalance);
-      console.log('💰 ETH balance:', formattedBalance);
     } catch (error) {
       console.error('Error fetching ETH balance:', error);
       setBalance('0');

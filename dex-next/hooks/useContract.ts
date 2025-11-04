@@ -30,15 +30,12 @@ export function useEthersSigner() {
 
   useEffect(() => {
     if (!walletClient) {
-      // console.log('⚠️ No walletClient, setting signer to null');
       setSigner(null);
       return;
     }
 
     const getSigner = async () => {
       try {
-        console.log('🔄 Creating signer from walletClient for:', walletClient.account.address);
-        
         // 使用 walletClient 的 transport 创建 provider
         // 这是 wagmi v2 + ethers v6 的正确做法
         const { account, chain, transport } = walletClient;
@@ -52,7 +49,6 @@ export function useEthersSigner() {
         // 从 provider 获取 signer
         const s = await provider.getSigner(account.address);
         
-        console.log('✅ Signer obtained successfully');
         setSigner(s);
       } catch (error) {
         console.error('❌ Error getting signer:', error);
@@ -63,7 +59,6 @@ export function useEthersSigner() {
     getSigner();
   }, [walletClient]);
 
-  // console.log('📊 useEthersSigner returning signer:', !!signer);
   return signer;
 }
 
@@ -143,7 +138,6 @@ export function useTokenContract(tokenAddress: string | null) {
       contractRef.current = contract;
       lastTokenRef.current = tokenAddress;
       lastSignerRef.current = signer;
-      console.log(`📝 Created new token contract with signer for ${tokenAddress.slice(0, 10)}...`);
       return contract;
     }
     // 降级使用 provider（只读）
@@ -152,7 +146,6 @@ export function useTokenContract(tokenAddress: string | null) {
       contractRef.current = contract;
       lastTokenRef.current = tokenAddress;
       lastSignerRef.current = null;
-      console.log(`📝 Created new token contract with provider for ${tokenAddress.slice(0, 10)}...`);
       return contract;
     }
     return null;
