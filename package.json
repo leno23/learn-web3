@@ -4,17 +4,19 @@
   "description": "250909  实现插入排序",
   "main": "index.js",
   "dependencies": {
-    "ethers": "^6.15.0",
+    "dotenv": "^17.2.4",
+    "ethers": "5.6.3",
+    "fs-extra": "^11.3.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "solc": "0.8.7-fixed",
     "viem": "^2.37.6",
     "vite": "^5.4.20",
     "wagmi": "^2.17.1"
   },
   "type": "module",
-  "devDependencies": {},
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "complie": "solcjs --bin --abi --include-path node_modules/ --base-path ./solidity/bilibili-learn -o ./solidity/bilibili-learn/SimpleStorage.sol"
   },
   "repository": {
     "type": "git",
